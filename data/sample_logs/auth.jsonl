@@ -1,0 +1,9 @@
+{"timestamp": "2026-06-26T09:00:01Z", "level": "INFO", "service": "auth-api", "message": "Service started"}
+{"timestamp": "2026-06-26T09:00:42Z", "level": "INFO", "service": "auth-api", "message": "User cust-001 logged in"}
+{"timestamp": "2026-06-26T09:01:15Z", "level": "WARNING", "service": "auth-api", "message": "Rate limit approaching for ip 10.0.0.5"}
+{"timestamp": "2026-06-26T09:02:30Z", "level": "ERROR", "service": "auth-api", "message": "Invalid JWT signature for user cust-042"}
+{"timestamp": "2026-06-26T09:03:11Z", "level": "ERROR", "service": "auth-api", "message": "Invalid JWT signature for user cust-099"}
+{"timestamp": "2026-06-26T09:04:05Z", "level": "ERROR", "service": "auth-api", "message": "Upstream token service returned 503"}
+{"timestamp": "2026-06-26T09:05:20Z", "level": "CRITICAL", "service": "auth-api", "message": "Secret key rotation failed: KMS unreachable"}
+{"timestamp": "2026-06-26T09:06:48Z", "level": "INFO", "service": "auth-api", "message": "Health check ok"}
+{"timestamp": "2026-06-26T09:07:33Z", "level": "ERROR", "service": "auth-api", "message": "Invalid JWT signature for user cust-150"}

@@ -141,3 +141,55 @@ python3 scripts/reconciliation_checker.py \
 `2` – configuration error (missing env vars / bad arguments)  
 `3` – runtime error (DB connection failure, malformed input)  
 
+## Observability
+
+### Log Alert Aggregator
+
+Scans log files from multiple services/directories for high-severity entries (`ERROR`/`CRITICAL`, optionally `WARNING`), aggregates them by service and error type, and sends a consolidated summary to a chat webhook.
+
+The payload is Slack-compatible (a JSON `{"text": ...}` body), but the webhook URL is configurable via the `WEBHOOK_URL` environment variable, so it also works with Discord and most generic webhook receivers. A `data/sample_logs/` folder with a plain-text and a JSON-lines fixture is bundled for demos.
+
+#### Features
+Scans individual files or whole directories (optionally recursive)  
+Parses plain-text logs (ERROR/CRITICAL/WARNING keywords) and structured JSON/JSON-lines  
+Groups and counts errors by service and error type, collapsing variable ids/numbers  
+Shows first/last occurrence timestamps and top error messages (truncated)  
+Sends via webhook (`WEBHOOK_URL`, never hardcoded), or `--dry-run` to print  
+Skips unreadable files and reports webhook failures with a non-zero exit  
+
+#### Usage
+```bash
+# Dry-run against the bundled sample logs (prints instead of sending).
+# Use --pattern '*' so the .jsonl fixture is included alongside the .log file.
+python3 scripts/log_alert_aggregator.py data/sample_logs --pattern '*' --dry-run
+
+# Scan specific files and POST to a Slack webhook
+WEBHOOK_URL='https://hooks.slack.com/services/XXX/YYY/ZZZ' \
+  python3 scripts/log_alert_aggregator.py /var/log/app/api.log /var/log/app/worker.log
+
+# Recurse a directory, include warnings, show the top 5 issues
+WEBHOOK_URL='https://discord.com/api/webhooks/XXX/YYY' \
+  python3 scripts/log_alert_aggregator.py /var/log -r --include-warnings --top 5
+```
+
+#### CLI Options
+
+`paths` – one or more log files or directories to scan (required)  
+`-r`, `--recursive` – recurse into subdirectories when a path is a directory  
+`--pattern` – glob for selecting files in a directory (default: `*.log`)  
+`--include-warnings` – also include WARNING entries (default: ERROR/CRITICAL only)  
+`--top` – number of top issue groups to show (default: 3)  
+`--max-msg-len` – truncate each sample message to N characters (default: 200)  
+`--timeout` – webhook POST timeout in seconds (default: 10)  
+`--dry-run` – print the summary to stdout instead of sending it  
+
+#### Environment Variables
+
+`WEBHOOK_URL` – target webhook URL (required unless `--dry-run`)  
+
+#### Exit Codes
+
+`0` – ran successfully (summary sent, or printed in `--dry-run`)  
+`2` – configuration error (missing `WEBHOOK_URL` without `--dry-run`, no valid paths)  
+`3` – webhook send failure  
+
