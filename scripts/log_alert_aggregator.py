@@ -50,7 +50,6 @@ import os
 import re
 import sys
 from collections import OrderedDict
-from typing import Dict, List, Optional, Tuple
 
 # Severities we know about, ordered from most to least severe.
 SEVERITY_ORDER = ["CRITICAL", "ERROR", "WARNING"]
@@ -81,7 +80,9 @@ TIMESTAMP_RE = re.compile(
 # same error with different ids/numbers collapses into one group.
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 HEX_RE = re.compile(r"\b0x[0-9a-f]+\b", re.I)
-NUM_RE = re.compile(r"\b\d+\b")
+# Mask any run of digits, including those glued to a unit (e.g. "5000ms"), so
+# the same error with different numbers collapses into one group.
+NUM_RE = re.compile(r"\d+")
 
 
 def warn(message: str) -> None:
@@ -89,7 +90,7 @@ def warn(message: str) -> None:
     print(f"[warn] {message}", file=sys.stderr)
 
 
-def canonical_severity(raw: Optional[str]) -> Optional[str]:
+def canonical_severity(raw: str | None) -> str | None:
     """
     Map a raw level string to one of CRITICAL/ERROR/WARNING.
 
@@ -108,7 +109,7 @@ def canonical_severity(raw: Optional[str]) -> Optional[str]:
     return None
 
 
-def iter_log_files(paths: List[str], pattern: str, recursive: bool) -> List[str]:
+def iter_log_files(paths: list[str], pattern: str, recursive: bool) -> list[str]:
     """
     Expand the given paths (files or directories) into a concrete list of files.
 
@@ -117,7 +118,7 @@ def iter_log_files(paths: List[str], pattern: str, recursive: bool) -> List[str]
     """
     import glob
 
-    files: List[str] = []
+    files: list[str] = []
     seen = set()
 
     def add(path: str) -> None:
@@ -129,9 +130,7 @@ def iter_log_files(paths: List[str], pattern: str, recursive: bool) -> List[str]
     for path in paths:
         if os.path.isdir(path):
             if recursive:
-                matches = glob.glob(
-                    os.path.join(path, "**", pattern), recursive=True
-                )
+                matches = glob.glob(os.path.join(path, "**", pattern), recursive=True)
             else:
                 matches = glob.glob(os.path.join(path, pattern))
             if not matches:
@@ -153,7 +152,7 @@ def service_name_for(path: str) -> str:
     return stem or base
 
 
-def _first_present(data: dict, keys: Tuple[str, ...]) -> Optional[str]:
+def _first_present(data: dict, keys: tuple[str, ...]) -> str | None:
     """Return the first key's value present in `data`, as a string."""
     for key in keys:
         if key in data and data[key] is not None:
@@ -161,7 +160,7 @@ def _first_present(data: dict, keys: Tuple[str, ...]) -> Optional[str]:
     return None
 
 
-def parse_line(raw: str, default_service: str) -> Optional[Dict[str, str]]:
+def parse_line(raw: str, default_service: str) -> dict[str, str] | None:
     """
     Parse a single log line into a normalized record.
 
@@ -224,7 +223,7 @@ def normalize_message_key(message: str) -> str:
     return " ".join(key.split())[:300]
 
 
-def aggregate(records: List[Dict[str, str]]) -> "OrderedDict":
+def aggregate(records: list[dict[str, str]]) -> "OrderedDict":
     """
     Group records by (service, severity, normalized message).
 
@@ -232,7 +231,7 @@ def aggregate(records: List[Dict[str, str]]) -> "OrderedDict":
     first/last timestamp, and a representative sample message. Groups are sorted
     by severity (most severe first) then by descending count.
     """
-    groups: Dict[Tuple[str, str, str], dict] = {}
+    groups: dict[tuple[str, str, str], dict] = {}
 
     for rec in records:
         key = (rec["service"], rec["severity"], normalize_message_key(rec["message"]))
@@ -290,7 +289,7 @@ def build_summary(
     severities = ["CRITICAL", "ERROR"] + (["WARNING"] if include_warnings else [])
 
     totals = {sev: 0 for sev in severities}
-    per_service: Dict[str, Dict[str, int]] = {}
+    per_service: dict[str, dict[str, int]] = {}
     for group in groups.values():
         sev = group["severity"]
         if sev not in totals:
@@ -301,9 +300,12 @@ def build_summary(
 
     total_issues = sum(totals.values())
 
-    lines: List[str] = []
-    header = "✅ Log Alert Summary — no high-severity entries found" if total_issues == 0 \
+    lines: list[str] = []
+    header = (
+        "✅ Log Alert Summary — no high-severity entries found"
+        if total_issues == 0
         else "🚨 Log Alert Summary"
+    )
     lines.append(header)
     counts_str = "  ".join(f"{sev}: {totals[sev]}" for sev in severities)
     lines.append(f"Scanned {scanned_files} file(s) — {counts_str}")
@@ -331,9 +333,7 @@ def build_summary(
             first = group["first_ts"] or "?"
             last = group["last_ts"] or "?"
             when = f" (first: {first}, last: {last})"
-        lines.append(
-            f"  [{group['severity']}] {group['service']} ×{group['count']}{when}"
-        )
+        lines.append(f"  [{group['severity']}] {group['service']} ×{group['count']}{when}")
         lines.append(f"      {_truncate(group['sample'], max_msg_len)}")
 
     return "\n".join(lines)
@@ -361,32 +361,30 @@ def send_webhook(url: str, payload: dict, timeout: int) -> None:
         raise RuntimeError(
             "requests is required to send webhooks. "
             "Install it with: pip install -r requirements.txt"
-        )
+        ) from None
 
     try:
         resp = requests.post(url, json=payload, timeout=timeout)
     except requests.RequestException as e:
-        raise RuntimeError(f"webhook request failed: {e}")
+        raise RuntimeError(f"webhook request failed: {e}") from e
 
     if not (200 <= resp.status_code < 300):
         body = (resp.text or "").strip()[:200]
-        raise RuntimeError(
-            f"webhook returned HTTP {resp.status_code}: {body or '<empty body>'}"
-        )
+        raise RuntimeError(f"webhook returned HTTP {resp.status_code}: {body or '<empty body>'}")
 
 
-def scan_files(files: List[str], include_warnings: bool) -> List[Dict[str, str]]:
+def scan_files(files: list[str], include_warnings: bool) -> list[dict[str, str]]:
     """
     Read every file and collect normalized high-severity records.
 
     Unreadable files produce a warning and are skipped. WARNING entries are
     dropped unless `include_warnings` is set.
     """
-    records: List[Dict[str, str]] = []
+    records: list[dict[str, str]] = []
     for path in files:
         service = service_name_for(path)
         try:
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
+            with open(path, encoding="utf-8", errors="replace") as f:
                 for raw in f:
                     rec = parse_line(raw, service)
                     if rec is None:
@@ -399,7 +397,7 @@ def scan_files(files: List[str], include_warnings: bool) -> List[Dict[str, str]]
     return records
 
 
-def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Aggregate ERROR/CRITICAL log entries and alert via webhook.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -451,7 +449,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
     webhook_url = (os.getenv("WEBHOOK_URL") or "").strip()

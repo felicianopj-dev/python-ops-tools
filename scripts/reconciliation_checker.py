@@ -55,7 +55,7 @@ import csv
 import json
 import os
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # Process exit codes (see module docstring).
 EXIT_OK = 0
@@ -87,46 +87,40 @@ def normalize(value: Any) -> str:
 
 
 def index_by_key(
-    records: List[Dict[str, Any]], key: str, source_name: str
-) -> Dict[str, Dict[str, Any]]:
+    records: list[dict[str, Any]], key: str, source_name: str
+) -> dict[str, dict[str, Any]]:
     """
     Build a {key_value: record} index, validating that every record carries a
     non-empty, unique matching key.
     """
-    indexed: Dict[str, Dict[str, Any]] = {}
+    indexed: dict[str, dict[str, Any]] = {}
     for i, record in enumerate(records):
         if not isinstance(record, dict):
-            raise RuntimeFailure(
-                f"{source_name}: record #{i} is not an object: {record!r}"
-            )
+            raise RuntimeFailure(f"{source_name}: record #{i} is not an object: {record!r}")
         if key not in record:
             raise RuntimeFailure(
                 f"{source_name}: record #{i} is missing key field '{key}': {record!r}"
             )
         key_value = normalize(record[key])
         if key_value == "":
-            raise RuntimeFailure(
-                f"{source_name}: record #{i} has an empty key field '{key}'"
-            )
+            raise RuntimeFailure(f"{source_name}: record #{i} has an empty key field '{key}'")
         if key_value in indexed:
-            raise RuntimeFailure(
-                f"{source_name}: duplicate key '{key_value}' for field '{key}'"
-            )
+            raise RuntimeFailure(f"{source_name}: duplicate key '{key_value}' for field '{key}'")
         indexed[key_value] = record
     return indexed
 
 
-def load_json_records(path: str, source_name: str) -> List[Dict[str, Any]]:
+def load_json_records(path: str, source_name: str) -> list[dict[str, Any]]:
     """Load and validate a JSON file containing a list of flat records."""
     if not os.path.isfile(path):
         raise RuntimeFailure(f"{source_name}: file not found: {path}")
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        raise RuntimeFailure(f"{source_name}: malformed JSON in {path}: {e}")
+        raise RuntimeFailure(f"{source_name}: malformed JSON in {path}: {e}") from e
     except OSError as e:
-        raise RuntimeFailure(f"{source_name}: cannot read {path}: {e}")
+        raise RuntimeFailure(f"{source_name}: cannot read {path}: {e}") from e
 
     if not isinstance(data, list):
         raise RuntimeFailure(
@@ -135,7 +129,7 @@ def load_json_records(path: str, source_name: str) -> List[Dict[str, Any]]:
     return data
 
 
-def load_mysql_records(table: str) -> List[Dict[str, Any]]:
+def load_mysql_records(table: str) -> list[dict[str, Any]]:
     """
     Load all rows from a MySQL table as a list of dicts.
 
@@ -153,7 +147,7 @@ def load_mysql_records(table: str) -> List[Dict[str, Any]]:
     try:
         db_port = int(os.getenv("DB_PORT", "3306"))
     except ValueError:
-        raise ConfigError("DB_PORT must be an integer.")
+        raise ConfigError("DB_PORT must be an integer.") from None
 
     if not db_name:
         raise ConfigError("DB_NAME environment variable is required.")
@@ -167,7 +161,7 @@ def load_mysql_records(table: str) -> List[Dict[str, Any]]:
         raise RuntimeFailure(
             "pymysql is required to read from MySQL. "
             "Install it with: pip install -r requirements.txt"
-        )
+        ) from None
 
     # Validate the table identifier ourselves: table names cannot be passed as
     # bound parameters, so we only allow a conservative identifier charset to
@@ -185,14 +179,14 @@ def load_mysql_records(table: str) -> List[Dict[str, Any]]:
             cursorclass=pymysql.cursors.DictCursor,
         )
     except pymysql.MySQLError as e:
-        raise RuntimeFailure(f"MySQL connection failed: {e}")
+        raise RuntimeFailure(f"MySQL connection failed: {e}") from e
 
     try:
         with connection.cursor() as cursor:
             cursor.execute(f"SELECT * FROM `{table}`")
             rows = cursor.fetchall()
     except pymysql.MySQLError as e:
-        raise RuntimeFailure(f"MySQL query failed on table '{table}': {e}")
+        raise RuntimeFailure(f"MySQL query failed on table '{table}': {e}") from e
     finally:
         connection.close()
 
@@ -200,11 +194,11 @@ def load_mysql_records(table: str) -> List[Dict[str, Any]]:
 
 
 def compare(
-    local: Dict[str, Dict[str, Any]],
-    remote: Dict[str, Dict[str, Any]],
+    local: dict[str, dict[str, Any]],
+    remote: dict[str, dict[str, Any]],
     key: str,
-    fields: Optional[List[str]],
-) -> Tuple[List[str], List[str], List[Dict[str, Any]]]:
+    fields: list[str] | None,
+) -> tuple[list[str], list[str], list[dict[str, Any]]]:
     """
     Compare two keyed record sets.
 
@@ -222,7 +216,7 @@ def compare(
     missing_in_remote = sorted(local_keys - remote_keys)
     missing_in_local = sorted(remote_keys - local_keys)
 
-    mismatches: List[Dict[str, Any]] = []
+    mismatches: list[dict[str, Any]] = []
     for k in sorted(local_keys & remote_keys):
         l_rec = local[k]
         r_rec = remote[k]
@@ -230,9 +224,7 @@ def compare(
         if fields is not None:
             compare_fields = fields
         else:
-            compare_fields = sorted(
-                (set(l_rec) | set(r_rec)) - {key}
-            )
+            compare_fields = sorted((set(l_rec) | set(r_rec)) - {key})
 
         for field in compare_fields:
             l_val = normalize(l_rec.get(field))
@@ -254,9 +246,9 @@ def print_report(
     key: str,
     local_count: int,
     remote_count: int,
-    missing_in_remote: List[str],
-    missing_in_local: List[str],
-    mismatches: List[Dict[str, Any]],
+    missing_in_remote: list[str],
+    missing_in_local: list[str],
+    mismatches: list[dict[str, Any]],
 ) -> None:
     """Print a clean, human-readable reconciliation report to stdout."""
     line = "=" * 60
@@ -280,10 +272,7 @@ def print_report(
 
     print(f"[3] Field mismatches: {len(mismatches)}")
     for m in mismatches:
-        print(
-            f"    - {m['key']} | {m['field']}: "
-            f"local={m['local_value']!r} api={m['api_value']!r}"
-        )
+        print(f"    - {m['key']} | {m['field']}: local={m['local_value']!r} api={m['api_value']!r}")
     print()
 
     total_issues = len(missing_in_remote) + len(missing_in_local) + len(mismatches)
@@ -300,9 +289,9 @@ def print_report(
 
 def write_csv_report(
     path: str,
-    missing_in_remote: List[str],
-    missing_in_local: List[str],
-    mismatches: List[Dict[str, Any]],
+    missing_in_remote: list[str],
+    missing_in_local: list[str],
+    mismatches: list[dict[str, Any]],
 ) -> None:
     """
     Write all discrepancies to a single CSV file.
@@ -313,9 +302,7 @@ def write_csv_report(
     try:
         with open(path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(
-                ["discrepancy_type", "key", "field", "local_value", "api_value"]
-            )
+            writer.writerow(["discrepancy_type", "key", "field", "local_value", "api_value"])
             for k in missing_in_remote:
                 writer.writerow(["missing_in_api", k, "", "", ""])
             for k in missing_in_local:
@@ -331,10 +318,10 @@ def write_csv_report(
                     ]
                 )
     except OSError as e:
-        raise RuntimeFailure(f"Cannot write CSV report to {path}: {e}")
+        raise RuntimeFailure(f"Cannot write CSV report to {path}: {e}") from e
 
 
-def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Reconcile a local MySQL table against API records (JSON).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -369,7 +356,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
     if not args.table and not args.local_file:
@@ -427,9 +414,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.csv_path:
         try:
-            write_csv_report(
-                args.csv_path, missing_in_remote, missing_in_local, mismatches
-            )
+            write_csv_report(args.csv_path, missing_in_remote, missing_in_local, mismatches)
         except RuntimeFailure as e:
             print(f"Error: {e}", file=sys.stderr)
             return EXIT_RUNTIME

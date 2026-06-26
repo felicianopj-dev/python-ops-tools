@@ -38,8 +38,9 @@ import os
 import random
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional
+from typing import Any
 
 import requests
 
@@ -57,11 +58,11 @@ class CachedResponse:
     """
 
     status_code: int
-    headers: Dict[str, str]
+    headers: dict[str, str]
     body: str
     url: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict for JSON persistence."""
         return {
             "status_code": self.status_code,
@@ -71,7 +72,7 @@ class CachedResponse:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "CachedResponse":
+    def from_dict(cls, data: dict[str, Any]) -> CachedResponse:
         """Reconstruct from a dict produced by `to_dict`."""
         return cls(
             status_code=int(data["status_code"]),
@@ -91,7 +92,7 @@ class _CachedHTTPResponse:
 
     def __init__(self, cached: CachedResponse) -> None:
         self.status_code: int = cached.status_code
-        self.headers: Dict[str, str] = cached.headers
+        self.headers: dict[str, str] = cached.headers
         self.text: str = cached.body
         self.url: str = cached.url
         self.from_cache: bool = True
@@ -112,7 +113,7 @@ class _CachedHTTPResponse:
 class IdempotencyCache:
     """Abstract idempotency cache interface."""
 
-    def get(self, key: str) -> Optional[CachedResponse]:
+    def get(self, key: str) -> CachedResponse | None:
         """Return the cached response for `key`, or None if absent."""
         raise NotImplementedError
 
@@ -125,9 +126,9 @@ class MemoryCache(IdempotencyCache):
     """In-process idempotency cache. Lives only for the current run."""
 
     def __init__(self) -> None:
-        self._store: Dict[str, CachedResponse] = {}
+        self._store: dict[str, CachedResponse] = {}
 
-    def get(self, key: str) -> Optional[CachedResponse]:
+    def get(self, key: str) -> CachedResponse | None:
         return self._store.get(key)
 
     def set(self, key: str, value: CachedResponse) -> None:
@@ -145,14 +146,14 @@ class JsonFileCache(IdempotencyCache):
 
     def __init__(self, path: str) -> None:
         self.path: str = path
-        self._store: Dict[str, CachedResponse] = {}
+        self._store: dict[str, CachedResponse] = {}
         self._load()
 
     def _load(self) -> None:
         if not os.path.isfile(self.path):
             return
         try:
-            with open(self.path, "r", encoding="utf-8") as f:
+            with open(self.path, encoding="utf-8") as f:
                 raw = json.load(f)
         except (OSError, json.JSONDecodeError) as e:
             print(
@@ -175,7 +176,7 @@ class JsonFileCache(IdempotencyCache):
             json.dump(serializable, f, indent=2)
         os.replace(tmp_path, self.path)
 
-    def get(self, key: str) -> Optional[CachedResponse]:
+    def get(self, key: str) -> CachedResponse | None:
         return self._store.get(key)
 
     def set(self, key: str, value: CachedResponse) -> None:
@@ -224,12 +225,12 @@ class ResilientClient:
 
     def __init__(
         self,
-        config: Optional[RetryConfig] = None,
-        cache: Optional[IdempotencyCache] = None,
-        session: Optional[requests.Session] = None,
+        config: RetryConfig | None = None,
+        cache: IdempotencyCache | None = None,
+        session: requests.Session | None = None,
         timeout: float = 10.0,
         sleeper: Callable[[float], None] = time.sleep,
-        logger: Optional[Callable[[str], None]] = None,
+        logger: Callable[[str], None] | None = None,
     ) -> None:
         self.config: RetryConfig = config or RetryConfig()
         self.cache: IdempotencyCache = cache or MemoryCache()
@@ -247,7 +248,7 @@ class ResilientClient:
         Exponential growth capped at `max_delay`, then full jitter — a uniform
         random value in [0, delay] — to spread out concurrent retriers.
         """
-        delay = self.config.base_delay * (self.config.backoff_factor ** attempt)
+        delay = self.config.base_delay * (self.config.backoff_factor**attempt)
         delay = min(delay, self.config.max_delay)
         if self.config.jitter:
             delay = random.uniform(0, delay)
@@ -262,7 +263,7 @@ class ResilientClient:
         method: str,
         url: str,
         *,
-        idempotency_key: Optional[str] = None,
+        idempotency_key: str | None = None,
         **kwargs: Any,
     ) -> Any:
         """
@@ -285,8 +286,8 @@ class ResilientClient:
                 return _CachedHTTPResponse(cached)
 
         kwargs.setdefault("timeout", self.timeout)
-        last_exc: Optional[BaseException] = None
-        response: Optional[requests.Response] = None
+        last_exc: BaseException | None = None
+        response: requests.Response | None = None
 
         # Total tries = initial attempt + max_retries.
         for attempt in range(self.config.max_retries + 1):
@@ -294,21 +295,15 @@ class ResilientClient:
                 response = self.session.request(method.upper(), url, **kwargs)
             except RETRYABLE_EXCEPTIONS as exc:
                 last_exc = exc
-                self._log(
-                    f"attempt {attempt + 1} failed: {type(exc).__name__}: {exc}"
-                )
+                self._log(f"attempt {attempt + 1} failed: {type(exc).__name__}: {exc}")
                 response = None
             else:
                 last_exc = None
                 if not self._is_retryable_status(response.status_code):
                     # Success or a permanent error (e.g. 4xx): stop immediately.
-                    self._log(
-                        f"attempt {attempt + 1} -> HTTP {response.status_code} (final)"
-                    )
+                    self._log(f"attempt {attempt + 1} -> HTTP {response.status_code} (final)")
                     break
-                self._log(
-                    f"attempt {attempt + 1} -> HTTP {response.status_code} (retryable)"
-                )
+                self._log(f"attempt {attempt + 1} -> HTTP {response.status_code} (retryable)")
 
             # If we are out of retries, stop looping.
             if attempt >= self.config.max_retries:
@@ -358,7 +353,7 @@ class ResilientClient:
 # --------------------------------------------------------------------------- #
 # CLI demo
 # --------------------------------------------------------------------------- #
-def _parse_args(argv: Optional[list] = None) -> argparse.Namespace:
+def _parse_args(argv: list | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Demo the ResilientClient: retry with backoff + idempotency.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -395,16 +390,14 @@ def _describe(label: str, resp: Any) -> None:
     print(f"{label}: HTTP {resp.status_code}{tag} | {snippet}")
 
 
-def main(argv: Optional[list] = None) -> int:
+def main(argv: list | None = None) -> int:
     args = _parse_args(argv)
 
     if args.max_retries < 0:
         print("Error: --max-retries must be >= 0.", file=sys.stderr)
         return 2
 
-    cache: IdempotencyCache = (
-        JsonFileCache(args.cache_file) if args.cache_file else MemoryCache()
-    )
+    cache: IdempotencyCache = JsonFileCache(args.cache_file) if args.cache_file else MemoryCache()
     config = RetryConfig(max_retries=args.max_retries, base_delay=args.base_delay)
     client = ResilientClient(
         config=config,
@@ -415,9 +408,7 @@ def main(argv: Optional[list] = None) -> int:
 
     print(f"Calling {args.method.upper()} {args.url}")
     try:
-        resp = client.request(
-            args.method, args.url, idempotency_key=args.idempotency_key
-        )
+        resp = client.request(args.method, args.url, idempotency_key=args.idempotency_key)
     except requests.RequestException as exc:
         print(f"Request failed after retries: {exc}", file=sys.stderr)
         return 3
@@ -428,9 +419,7 @@ def main(argv: Optional[list] = None) -> int:
     if args.idempotency_key:
         print("\nRepeating the same request with the same idempotency key...")
         try:
-            resp2 = client.request(
-                args.method, args.url, idempotency_key=args.idempotency_key
-            )
+            resp2 = client.request(args.method, args.url, idempotency_key=args.idempotency_key)
         except requests.RequestException as exc:
             print(f"Replay failed: {exc}", file=sys.stderr)
             return 3

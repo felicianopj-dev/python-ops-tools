@@ -48,7 +48,6 @@ import os
 import subprocess
 import sys
 from datetime import datetime
-from typing import List, Optional, Tuple
 
 # Process exit codes (see module docstring).
 EXIT_PASS = 0
@@ -72,7 +71,7 @@ class RestoreError(Exception):
 # --------------------------------------------------------------------------- #
 # Connection configuration (reused from the backup scripts)
 # --------------------------------------------------------------------------- #
-def get_connection_config() -> Tuple[str, str, str]:
+def get_connection_config() -> tuple[str, str, str]:
     """
     Read connection settings from the environment, mirroring the backup scripts.
 
@@ -102,7 +101,7 @@ def build_env() -> dict:
     return env
 
 
-def mysql_base_cmd(database: Optional[str] = None) -> List[str]:
+def mysql_base_cmd(database: str | None = None) -> list[str]:
     """Build the base `mysql` invocation, optionally selecting a database."""
     host, port, user = get_connection_config()
     cmd = ["mysql", "-h", host, "-P", port, "-u", user]
@@ -114,7 +113,7 @@ def mysql_base_cmd(database: Optional[str] = None) -> List[str]:
 # --------------------------------------------------------------------------- #
 # Low-level mysql helpers
 # --------------------------------------------------------------------------- #
-def run_sql(statement: str, database: Optional[str] = None) -> str:
+def run_sql(statement: str, database: str | None = None) -> str:
     """
     Execute a single SQL statement via the mysql client and return stdout.
 
@@ -124,19 +123,17 @@ def run_sql(statement: str, database: Optional[str] = None) -> str:
     cmd = mysql_base_cmd(database) + ["-N", "-e", statement]
     proc = subprocess.run(cmd, capture_output=True, text=True, env=build_env())
     if proc.returncode != 0:
-        raise RuntimeFailure(
-            f"mysql command failed ({statement!r}): {proc.stderr.strip()}"
-        )
+        raise RuntimeFailure(f"mysql command failed ({statement!r}): {proc.stderr.strip()}")
     return proc.stdout.strip()
 
 
-def scalar_int(statement: str, database: Optional[str] = None) -> int:
+def scalar_int(statement: str, database: str | None = None) -> int:
     """Run a statement expected to return a single integer and parse it."""
     out = run_sql(statement, database)
     try:
         return int(out.splitlines()[0]) if out else 0
     except (ValueError, IndexError):
-        raise RuntimeFailure(f"expected an integer from {statement!r}, got: {out!r}")
+        raise RuntimeFailure(f"expected an integer from {statement!r}, got: {out!r}") from None
 
 
 def quote_ident(name: str) -> str:
@@ -152,7 +149,7 @@ def quote_ident(name: str) -> str:
 # --------------------------------------------------------------------------- #
 # Temp database lifecycle + restore
 # --------------------------------------------------------------------------- #
-def make_temp_db_name(override: Optional[str]) -> str:
+def make_temp_db_name(override: str | None) -> str:
     """Generate a unique, identifiable temp database name (or use override)."""
     if override:
         return override
@@ -197,7 +194,7 @@ def restore_dump(path: str, database: str) -> None:
     except OSError as e:
         proc.kill()
         proc.wait()
-        raise RestoreError(f"could not read dump file {path}: {e}")
+        raise RestoreError(f"could not read dump file {path}: {e}") from e
 
     _, stderr = proc.communicate()
     if proc.returncode != 0:
@@ -234,7 +231,7 @@ def count_rows(database: str, table: str) -> int:
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
-def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Verify that a MySQL backup dump is actually restorable.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -271,7 +268,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
     # Validate inputs early.
@@ -292,7 +289,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     temp_db = make_temp_db_name(args.temp_db)
 
     # Each entry is (check_name, passed, detail).
-    results: List[Tuple[str, bool, str]] = []
+    results: list[tuple[str, bool, str]] = []
     created = False
 
     print(f"Verifying backup: {args.backup_file}")
@@ -373,7 +370,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 
 def _finish(
-    results: List[Tuple[str, bool, str]],
+    results: list[tuple[str, bool, str]],
     temp_db: str,
     created: bool,
     keep_temp_db: bool,
@@ -387,9 +384,7 @@ def _finish(
     return EXIT_PASS if all_passed else EXIT_FAIL
 
 
-def print_report(
-    results: List[Tuple[str, bool, str]], temp_db: str, keep_temp_db: bool
-) -> None:
+def print_report(results: list[tuple[str, bool, str]], temp_db: str, keep_temp_db: bool) -> None:
     """Print a clear, human-readable PASS/FAIL report."""
     print("-" * 60)
     print("VERIFICATION REPORT")

@@ -1,0 +1,39 @@
+[project]
+name = "python-ops-tools"
+version = "0.1.0"
+description = "Pragmatic Python utilities for DevOps and infrastructure tasks: backups, reconciliation, log alerting, a resilient HTTP client, and backup verification."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Feliciano S. Prochera Jr." }]
+keywords = ["devops", "ops", "mysql", "backup", "observability", "automation"]
+dependencies = [
+    "PyMySQL>=1.0.0",
+    "requests>=2.25.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.4",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# Scripts and tests live outside a package; tell ruff where to look.
+src = ["scripts", "tests"]
+
+[tool.ruff.lint]
+# A pragmatic default rule set: pyflakes, pycodestyle, isort, bugbear, pyupgrade.
+select = ["E", "F", "I", "B", "UP"]
+ignore = [
+    "E501",  # line length is enforced by the formatter, not the linter
+]
+
+[tool.pytest.ini_options]
+# Scripts are imported directly by tests (they are not packaged into a module),
+# so put the scripts directory on the import path.
+pythonpath = ["scripts"]
+testpaths = ["tests"]
+addopts = "-q"
