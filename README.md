@@ -193,3 +193,58 @@ WEBHOOK_URL='https://discord.com/api/webhooks/XXX/YYY' \
 `2` – configuration error (missing `WEBHOOK_URL` without `--dry-run`, no valid paths)  
 `3` – webhook send failure  
 
+## Utilities
+
+### Resilient HTTP Client
+
+A small, reusable HTTP client (`ResilientClient`) that wraps `requests` with two resilience patterns borrowed from payment-API design, generalized for any service-to-service call.
+
+**Exponential backoff with jitter** — transient failures (connection errors, timeouts, and retryable status codes `500/502/503/504/408/429`) are retried with an exponentially growing delay plus random jitter, so many clients don't retry in lockstep ("thundering herd"). Client errors (`4xx`, except `408`/`429`) are **never** retried — they won't succeed on replay.
+
+**Idempotency / request deduplication** — each request can carry an *idempotency key*. The first successful response for a key is cached; any later request with the same key returns the cached response instead of performing the call again. This is how payment APIs avoid charging a customer twice when a client retries after an ambiguous failure (e.g. a timeout where the charge may or may not have gone through). The cache is pluggable: in-memory by default, or a local JSON file for dedup that survives process restarts.
+
+#### Library usage
+```python
+from retry_client import ResilientClient, RetryConfig, JsonFileCache
+
+client = ResilientClient(
+    config=RetryConfig(max_retries=5, base_delay=0.5),
+    cache=JsonFileCache("/var/lib/app/idempotency.json"),  # omit for in-memory
+)
+
+# A retry of this call (same key) returns the cached response — no double charge.
+resp = client.post(
+    "https://api.example.com/charge",
+    json={"amount": 1000, "currency": "USD"},
+    idempotency_key="order-42",
+)
+print(resp.status_code, resp.json())
+```
+
+#### CLI demo
+```bash
+# Demonstrate retries + backoff against an endpoint that returns 500
+python3 scripts/retry_client.py --url https://httpbin.org/status/500 --max-retries 3 --base-delay 0.2
+
+# Demonstrate idempotent replay: the same key returns the cached response,
+# so the second call shows the SAME uuid instead of a fresh one
+python3 scripts/retry_client.py --url https://httpbin.org/uuid \
+  --idempotency-key demo-1 --cache-file /tmp/idempotency.json
+```
+
+#### CLI Options
+
+`--url` – URL to call (default: `https://httpbin.org/status/500`, returns 500 to show retries)  
+`--method` – HTTP method (default: GET)  
+`--max-retries` – maximum retries (default: 3)  
+`--base-delay` – base backoff delay in seconds (default: 0.5)  
+`--idempotency-key` – if set, the demo issues the request twice to show cached replay  
+`--cache-file` – persist the idempotency cache to this JSON file (default: in-memory)  
+`--timeout` – per-request timeout in seconds (default: 10)  
+
+#### Exit Codes
+
+`0` – request succeeded  
+`2` – bad arguments / configuration  
+`3` – request ultimately failed (after retries)  
+
