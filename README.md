@@ -1,8 +1,45 @@
 # Python Ops Tools
 
+[![CI](https://github.com/felicianopj-dev/python-ops-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/felicianopj-dev/python-ops-tools/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A small collection of pragmatic Python utilities for day-to-day DevOps and infrastructure tasks.
 
-Focused on reliability, explicit configuration via environment variables, and scripts that work well in production environments, cron jobs, and containers.
+Focused on reliability, explicit configuration via environment variables, and scripts that work well in production environments, cron jobs, and containers. Every tool is dependency-light, typed, and covered by tests.
+
+## Tools at a glance
+
+| Tool | Purpose | Quick start |
+| --- | --- | --- |
+| `scripts/backup_db.py` | Consistent single-database MySQL backup | `DB_NAME=app DB_USER=u python3 scripts/backup_db.py` |
+| `scripts/backup_all_dbs.py` | Back up all non-system databases (gzip + JSON logs) | `DB_USER=u python3 scripts/backup_all_dbs.py` |
+| `scripts/api_health_check.py` | HTTP health checks with status/JSON validation | `URL=https://api/health python3 scripts/api_health_check.py` |
+| `scripts/reconciliation_checker.py` | Compare a DB table vs API records for discrepancies | `python3 scripts/reconciliation_checker.py --local-file data/sample_api_data.json --api-file data/sample_api_data.json` |
+| `scripts/log_alert_aggregator.py` | Aggregate ERROR/CRITICAL logs and alert via webhook | `python3 scripts/log_alert_aggregator.py data/sample_logs --pattern '*' --dry-run` |
+| `scripts/retry_client.py` | Reusable HTTP client: backoff + idempotency | `python3 scripts/retry_client.py --help` |
+| `scripts/verify_backup.py` | Prove a backup is restorable, not just present | `DB_USER=u python3 scripts/verify_backup.py dump.sql.gz` |
+
+## Requirements
+
+- Python ≥ 3.10
+- For the MySQL tools: the `mysql` / `mysqldump` client binaries on `PATH`, and a reachable MySQL server
+
+## Installation
+
+```bash
+pip install -r requirements.txt
+```
+
+## Development
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+pytest            # run the test suite
+ruff check .      # lint
+ruff format .     # auto-format
+```
+
+---
 
 ### MySQL Single Database Backup
 
@@ -21,7 +58,7 @@ DB_NAME=app_db \
 DB_USER=backup_user \
 MYSQL_PWD='strong_password' \
 BACKUP_DIR=/var/backups/mysql \
-python3 backup.py
+python3 scripts/backup_db.py
 ```
 
 ### MySQL Full Server Backup (All Databases)
@@ -45,7 +82,7 @@ DB_USER=backup_user \
 DB_PASSWORD='strong_password' \
 BACKUP_DIR=/var/backups/mysql \
 GZIP_LEVEL=6 \
-python3 backup_all_dbs.py
+python3 scripts/backup_all_dbs.py
 ```
 
 ### API Health Check
@@ -66,7 +103,7 @@ Cron, CI/CD, and container friendly
 ```bash
 URL="https://api.example.com/health" \
 EXPECT_STATUS=200 \
-python3 api_health_check.py
+python3 scripts/api_health_check.py
 ```
 #### Environment Variables
 
