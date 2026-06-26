@@ -41,17 +41,16 @@ Exit codes:
 
 import json
 import os
+import ssl
 import sys
 import time
-import urllib.request
 import urllib.error
-import ssl
-from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+import urllib.request
+from datetime import datetime, timezone
 
 
 def utc_ts() -> str:
-    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def log_json(level: str, event: str, **fields) -> None:
@@ -66,7 +65,7 @@ def env_int(name: str, default: int) -> int:
     try:
         return int(raw)
     except ValueError:
-        raise ValueError(f"{name} must be an integer, got: {raw!r}")
+        raise ValueError(f"{name} must be an integer, got: {raw!r}") from None
 
 
 def env_bool(name: str, default: bool) -> bool:
@@ -76,10 +75,10 @@ def env_bool(name: str, default: bool) -> bool:
     return raw.strip() in {"1", "true", "TRUE", "yes", "YES", "on", "ON"}
 
 
-def parse_csv_set(raw: str, default: List[int]) -> List[int]:
+def parse_csv_set(raw: str, default: list[int]) -> list[int]:
     if not raw or raw.strip() == "":
         return default
-    out: List[int] = []
+    out: list[int] = []
     for part in raw.split(","):
         p = part.strip()
         if not p:
@@ -90,12 +89,12 @@ def parse_csv_set(raw: str, default: List[int]) -> List[int]:
     return out or default
 
 
-def parse_expect_json(raw: str) -> Dict[str, str]:
+def parse_expect_json(raw: str) -> dict[str, str]:
     """
     Parses "key=value,key2=value2" into a dict. Values are kept as strings,
     but the checker will compare against JSON primitives conservatively.
     """
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     if not raw or raw.strip() == "":
         return out
     for pair in raw.split(","):
@@ -113,7 +112,7 @@ def parse_expect_json(raw: str) -> Dict[str, str]:
     return out
 
 
-def build_ssl_context(insecure_tls: bool) -> Optional[ssl.SSLContext]:
+def build_ssl_context(insecure_tls: bool) -> ssl.SSLContext | None:
     if not insecure_tls:
         return None
     ctx = ssl.create_default_context()
@@ -157,11 +156,11 @@ def safe_decode_body(data: bytes, content_type: str) -> str:
 def request_once(
     url: str,
     method: str,
-    headers: Dict[str, str],
+    headers: dict[str, str],
     timeout_seconds: int,
     follow_redirects: bool,
-    ssl_context: Optional[ssl.SSLContext],
-) -> Tuple[Optional[int], Optional[bytes], Optional[str]]:
+    ssl_context: ssl.SSLContext | None,
+) -> tuple[int | None, bytes | None, str | None]:
     """
     Returns: (status_code, body_bytes, error_string)
     """
@@ -177,9 +176,7 @@ def request_once(
         # Disable redirects by installing a redirect handler that raises.
         class NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, req, fp, code, msg, hdrs, newurl):
-                raise urllib.error.HTTPError(
-                    req.full_url, code, "redirect_disabled", hdrs, fp
-                )
+                raise urllib.error.HTTPError(req.full_url, code, "redirect_disabled", hdrs, fp)
 
         handlers.append(NoRedirect())
 
@@ -206,7 +203,7 @@ def request_once(
         return None, None, f"Error: {e}"
 
 
-def validate_json(body_text: str, rules: Dict[str, str]) -> Tuple[bool, str]:
+def validate_json(body_text: str, rules: dict[str, str]) -> tuple[bool, str]:
     if not rules:
         return True, ""
     try:
@@ -248,7 +245,7 @@ def main() -> int:
         return 3
 
     # Resolve targets
-    targets: List[str] = []
+    targets: list[str] = []
     if targets_raw:
         targets = [t.strip() for t in targets_raw.split(",") if t.strip()]
     elif url:
@@ -260,7 +257,7 @@ def main() -> int:
 
     # Headers
     user_agent = os.getenv("USER_AGENT", "python-ops-tools/1.0")
-    headers: Dict[str, str] = {"User-Agent": user_agent}
+    headers: dict[str, str] = {"User-Agent": user_agent}
 
     auth = os.getenv("HEADER_AUTH")
     if auth and auth.strip():
@@ -287,7 +284,7 @@ def main() -> int:
         attempt = 0
         ok = False
         last_err = ""
-        last_status: Optional[int] = None
+        last_status: int | None = None
         last_body_snippet = ""
 
         while attempt <= retries:
@@ -378,4 +375,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
