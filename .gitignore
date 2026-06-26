@@ -3,3 +3,6 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
+
+# Local-only Claude Code project context (intentionally not committed)
+CLAUDE.md
