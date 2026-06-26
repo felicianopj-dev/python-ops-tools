@@ -248,3 +248,52 @@ python3 scripts/retry_client.py --url https://httpbin.org/uuid \
 `2` – bad arguments / configuration  
 `3` – request ultimately failed (after retries)  
 
+## Backup Verification
+
+### Verify Backup
+
+Validates that a database backup (produced by `backup_db.py` or `backup_all_dbs.py`) is actually **restorable** — not merely present on disk.
+
+**Why this matters: an untested backup is not a backup.** A dump can exist, be the expected size, and still be useless — truncated mid-write, corrupted, encoded wrong, or missing routines/triggers. The only way to know a backup will save you during an incident is to restore it. This script does exactly that: it restores the dump into a throwaway database, runs sanity checks, and tears the database down again — turning "we have backups" into "we have *verified, restorable* backups". Run it on a schedule (cron) against your latest dumps so a broken backup is discovered in advance, not during a disaster.
+
+#### What it checks
+Restore completes with no SQL errors  
+Table count meets expectations (exact via `--expected-tables`, or a floor via `--min-tables`)  
+Row counts for a configurable list of `--critical-tables` are non-zero  
+The temporary database is always dropped afterwards, even on failure  
+
+The restore and all queries go through the `mysql` client (same tooling as the backup scripts), so the only requirements are a reachable MySQL server and `mysql` on PATH. Both plain `.sql` and gzipped `.sql.gz` dumps are supported (detected by content). This targets single-database dumps as produced by the backup scripts.
+
+#### Usage
+```bash
+DB_HOST=localhost \
+DB_USER=verify_user \
+DB_PASSWORD='strong_password' \
+python3 scripts/verify_backup.py /var/backups/mysql/app_db_20260626_010000.sql.gz \
+  --critical-tables users,transactions,accounts \
+  --min-tables 5
+```
+
+#### CLI Options
+
+`backup_file` – path to the dump to verify, `.sql` or `.sql.gz` (required)  
+`--critical-tables` – comma-separated tables that must exist and have non-zero rows  
+`--expected-tables` – exact number of tables the restored database must contain  
+`--min-tables` – minimum number of tables required (default: 1)  
+`--temp-db` – override the generated temporary database name  
+`--keep-temp-db` – keep the temp database afterwards (for debugging)  
+
+#### Environment Variables
+
+`DB_HOST` – server host (default: localhost)  
+`DB_PORT` – server port (default: 3306)  
+`DB_USER` – user name, needs privileges to create/drop databases (required)  
+`DB_PASSWORD` – password (optional; `MYSQL_PWD` is honored as a fallback)  
+
+#### Exit Codes
+
+`0` – verification PASSED  
+`1` – verification FAILED (restore error or a failed sanity check)  
+`2` – configuration error (missing `DB_USER`, bad arguments, missing/empty file)  
+`3` – runtime error (could not connect / create / drop the temp database)  
+
