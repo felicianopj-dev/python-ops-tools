@@ -1,0 +1,22 @@
+[
+  {"transaction_id": "TXN-1001", "amount": "100.00", "status": "settled", "currency": "USD", "customer_id": "CUST-001"},
+  {"transaction_id": "TXN-1002", "amount": "250.50", "status": "settled", "currency": "USD", "customer_id": "CUST-002"},
+  {"transaction_id": "TXN-1003", "amount": "75.25", "status": "pending", "currency": "EUR", "customer_id": "CUST-003"},
+  {"transaction_id": "TXN-1004", "amount": "1200.00", "status": "settled", "currency": "USD", "customer_id": "CUST-004"},
+  {"transaction_id": "TXN-1005", "amount": "9.99", "status": "refunded", "currency": "GBP", "customer_id": "CUST-005"},
+  {"transaction_id": "TXN-1006", "amount": "500.00", "status": "settled", "currency": "USD", "customer_id": "CUST-006"},
+  {"transaction_id": "TXN-1007", "amount": "33.33", "status": "failed", "currency": "EUR", "customer_id": "CUST-007"},
+  {"transaction_id": "TXN-1008", "amount": "812.10", "status": "settled", "currency": "USD", "customer_id": "CUST-008"},
+  {"transaction_id": "TXN-1009", "amount": "47.00", "status": "pending", "currency": "USD", "customer_id": "CUST-009"},
+  {"transaction_id": "TXN-1010", "amount": "1999.99", "status": "settled", "currency": "USD", "customer_id": "CUST-010"},
+  {"transaction_id": "TXN-1011", "amount": "60.00", "status": "settled", "currency": "CAD", "customer_id": "CUST-011"},
+  {"transaction_id": "TXN-1012", "amount": "420.69", "status": "settled", "currency": "USD", "customer_id": "CUST-012"},
+  {"transaction_id": "TXN-1013", "amount": "15.00", "status": "refunded", "currency": "USD", "customer_id": "CUST-013"},
+  {"transaction_id": "TXN-1014", "amount": "350.00", "status": "settled", "currency": "EUR", "customer_id": "CUST-014"},
+  {"transaction_id": "TXN-1015", "amount": "88.88", "status": "pending", "currency": "USD", "customer_id": "CUST-015"},
+  {"transaction_id": "TXN-1016", "amount": "640.40", "status": "settled", "currency": "GBP", "customer_id": "CUST-016"},
+  {"transaction_id": "TXN-1017", "amount": "12.34", "status": "failed", "currency": "USD", "customer_id": "CUST-017"},
+  {"transaction_id": "TXN-1018", "amount": "5000.00", "status": "settled", "currency": "USD", "customer_id": "CUST-018"},
+  {"transaction_id": "TXN-1019", "amount": "299.00", "status": "settled", "currency": "USD", "customer_id": "CUST-019"},
+  {"transaction_id": "TXN-9999", "amount": "0.01", "status": "settled", "currency": "USD", "customer_id": "CUST-099"}
+]

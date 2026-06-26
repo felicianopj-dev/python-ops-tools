@@ -82,3 +82,62 @@ python3 api_health_check.py
 `INSECURE_TLS` – disable TLS verification (use with caution)  
 `FOLLOW_REDIRECTS` – follow HTTP redirects (default: 1)  
 
+## Data Integrity
+
+### Reconciliation Checker
+
+Compares records between two data sources to surface discrepancies — a common fintech ops task such as confirming that a local payments table matches an external processor's API view (status, amounts, IDs).
+
+Records are matched on a key field (default: `transaction_id`). The local source is a MySQL table (connection settings reuse the `backup_db.py` environment-variable pattern); the remote source is a JSON file of "API records". A `data/sample_api_data.json` file with ~20 fake records is bundled for demos and testing.
+
+#### Features
+Matches records by a configurable key field  
+Reports records missing on each side and field-level mismatches (e.g. amount or status)  
+Clean summary report to stdout, with optional CSV export  
+`argparse` CLI for table name, key, compared fields, and output path  
+Demo mode (`--local-file`) to run without a database  
+Basic error handling for missing config, connection failures, and malformed records  
+
+#### Usage
+```bash
+# Compare MySQL table `transactions` against the bundled sample API file
+DB_NAME=payments \
+DB_USER=ops \
+MYSQL_PWD='strong_password' \
+python3 scripts/reconciliation_checker.py \
+  --table transactions \
+  --api-file data/sample_api_data.json \
+  --key transaction_id \
+  --fields amount,status \
+  --csv /tmp/reconciliation_report.csv
+
+# Demo without a database: use JSON files for both sides
+python3 scripts/reconciliation_checker.py \
+  --local-file data/sample_api_data.json \
+  --api-file data/sample_api_data.json
+```
+
+#### CLI Options
+
+`--table` – local MySQL table to read (uses `DB_*` env vars)  
+`--local-file` – use a JSON file as the local source instead of MySQL (demos)  
+`--api-file` – path to the JSON file with API records (required)  
+`--key` – field used to match records across sources (default: `transaction_id`)  
+`--fields` – comma-separated fields to compare (default: all non-key fields)  
+`--csv` – optional path to also write a CSV discrepancy report  
+
+#### Environment Variables (MySQL source)
+
+`DB_NAME` – database name (required)  
+`DB_USER` – database user (required)  
+`DB_HOST` – database host (default: localhost)  
+`DB_PORT` – database port (default: 3306)  
+`MYSQL_PWD` – database password (standard MySQL env var)  
+
+#### Exit Codes
+
+`0` – ran successfully, both sides matched  
+`1` – ran successfully, discrepancies found  
+`2` – configuration error (missing env vars / bad arguments)  
+`3` – runtime error (DB connection failure, malformed input)  
+
