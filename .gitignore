@@ -4,5 +4,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+# Python build / packaging artifacts
+*.egg-info/
+build/
+dist/
+
 # Local-only Claude Code project context (intentionally not committed)
 CLAUDE.md
