@@ -1,23 +1,28 @@
-"""Unit tests for api_health_check helpers (no network required)."""
-
-import ssl
+"""Unit tests for api_health_check (no network required)."""
 
 import pytest
+import requests
 
 from api_health_check import (
     EXIT_CONFIG,
     EXIT_FAILED,
     EXIT_OK,
-    build_ssl_context,
+    Config,
+    check_target,
     coerce_expected_value,
     main,
     parse_csv_set,
     parse_expect_json,
     read_config,
+    run_checks,
     validate_json,
 )
+from retry_client import ResilientClient, RetryConfig
 
 
+# --------------------------------------------------------------------------- #
+# Pure helpers
+# --------------------------------------------------------------------------- #
 def test_parse_csv_set_parses_and_falls_back_to_default():
     assert parse_csv_set("200,204", [500]) == [200, 204]
     assert parse_csv_set("", [200, 204]) == [200, 204]
@@ -71,14 +76,9 @@ def test_validate_json_coerces_booleans():
     assert validate_json('{"healthy": true}', {"healthy": "true"}) == (True, "")
 
 
-def test_build_ssl_context_toggle():
-    assert build_ssl_context(False) is None
-    ctx = build_ssl_context(True)
-    assert isinstance(ctx, ssl.SSLContext)
-    assert ctx.verify_mode == ssl.CERT_NONE
-    assert ctx.check_hostname is False
-
-
+# --------------------------------------------------------------------------- #
+# Config
+# --------------------------------------------------------------------------- #
 def _clear_targets(monkeypatch):
     monkeypatch.delenv("URL", raising=False)
     monkeypatch.delenv("TARGETS", raising=False)
@@ -99,6 +99,84 @@ def test_read_config_builds_headers_and_targets(monkeypatch):
     assert config.headers["Authorization"] == "Bearer xyz"
 
 
+# --------------------------------------------------------------------------- #
+# Check logic via an injected fake session (no real HTTP)
+# --------------------------------------------------------------------------- #
+class FakeResponse:
+    def __init__(self, status_code: int, text: str = ""):
+        self.status_code = status_code
+        self.text = text
+
+
+class FakeSession:
+    """Minimal stand-in for requests.Session. Returns/raises a fixed result."""
+
+    def __init__(self, result):
+        self.result = result
+        self.calls = 0
+
+    def request(self, method, url, **kwargs):
+        self.calls += 1
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+def _config(**overrides) -> Config:
+    base = dict(
+        targets=["https://svc/health"],
+        method="GET",
+        timeout_seconds=5,
+        retries=0,
+        retry_delay_ms=0,
+        insecure_tls=False,
+        follow_redirects=True,
+        expect_status=[200, 204],
+        expect_json_rules={},
+        headers={},
+    )
+    base.update(overrides)
+    return Config(**base)
+
+
+def _client(result) -> ResilientClient:
+    return ResilientClient(
+        config=RetryConfig(max_retries=0),
+        session=FakeSession(result),
+        sleeper=lambda _s: None,
+    )
+
+
+def test_check_target_healthy():
+    assert check_target(_config(), _client(FakeResponse(200, "{}")), "https://svc/health") is True
+
+
+def test_check_target_unexpected_status():
+    cfg = _config()
+    assert check_target(cfg, _client(FakeResponse(503, "")), "https://svc/health") is False
+
+
+def test_check_target_json_mismatch():
+    cfg = _config(expect_json_rules={"status": "ok"})
+    bad = _client(FakeResponse(200, '{"status": "down"}'))
+    assert check_target(cfg, bad, "https://svc/health") is False
+
+
+def test_check_target_transport_error():
+    cfg = _config()
+    boom = _client(requests.ConnectionError("refused"))
+    assert check_target(cfg, boom, "https://svc/health") is False
+
+
+def test_run_checks_aggregates_failures():
+    cfg = _config(targets=["https://a", "https://b"])
+    assert run_checks(cfg, _client(FakeResponse(200, "{}"))) is False
+    assert run_checks(cfg, _client(FakeResponse(500, ""))) is True
+
+
+# --------------------------------------------------------------------------- #
+# main() exit codes
+# --------------------------------------------------------------------------- #
 def test_main_missing_target_returns_config_error(monkeypatch):
     _clear_targets(monkeypatch)
     assert main() == EXIT_CONFIG
@@ -111,19 +189,13 @@ def test_main_invalid_expect_status_returns_config_error(monkeypatch):
     assert main() == EXIT_CONFIG
 
 
-def test_main_success_path(monkeypatch):
+def test_main_success_and_failure_paths(monkeypatch):
     _clear_targets(monkeypatch)
     monkeypatch.setenv("URL", "https://a.com")
     monkeypatch.setenv("RETRIES", "0")
-    monkeypatch.setattr("api_health_check.request_once", lambda **kw: (200, b"{}", None))
+
+    monkeypatch.setattr("api_health_check.build_client", lambda cfg: _client(FakeResponse(200, "{}")))
     assert main() == EXIT_OK
 
-
-def test_main_failure_path(monkeypatch):
-    _clear_targets(monkeypatch)
-    monkeypatch.setenv("URL", "https://a.com")
-    monkeypatch.setenv("RETRIES", "0")
-    monkeypatch.setattr(
-        "api_health_check.request_once", lambda **kw: (None, None, "URLError: boom")
-    )
+    monkeypatch.setattr("api_health_check.build_client", lambda cfg: _client(FakeResponse(404, "")))
     assert main() == EXIT_FAILED

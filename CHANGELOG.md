@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `api_health_check.py` now performs HTTP via `retry_client.ResilientClient`
+  instead of `urllib`, unifying retry/backoff behaviour. Retries now apply only
+  to transient failures (timeouts, connection errors, 5xx/408/429); other
+  unexpected statuses fail fast instead of being retried.
+
 ## [0.2.0]
 
 ### Added

@@ -9,13 +9,18 @@ Simple API health checker for ops/cron usage.
 - Emits single-line JSON logs (stdout)
 - Exits non-zero when any check fails (cron/CI friendly)
 
+HTTP is delegated to `retry_client.ResilientClient`, so retries/backoff are shared
+with the rest of the toolkit. Transient failures (timeouts, connection errors and
+retryable statuses 5xx/408/429) are retried; other unexpected statuses (e.g. 404)
+are treated as a failed check without pointless retries.
+
 Environment variables:
   TARGETS            Comma-separated list of URLs (or use URL + optional /health path)
   URL                Single URL (alternative to TARGETS)
   METHOD             HTTP method (default: GET)
   TIMEOUT_SECONDS    Request timeout in seconds (default: 5)
-  RETRIES            Number of retries on failure (default: 1)
-  RETRY_DELAY_MS     Delay between retries in ms (default: 250)
+  RETRIES            Number of retries on transient failure (default: 1)
+  RETRY_DELAY_MS     Base backoff delay in ms (default: 250)
   EXPECT_STATUS      Expected status code(s), comma-separated (default: 200,204)
   EXPECT_JSON        Optional JSON validation rules (default: empty)
                      Format: "key=value,key2=value2" (top-level keys only)
@@ -41,13 +46,15 @@ Exit codes:
 
 import json
 import os
-import ssl
 import sys
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any
+
+import requests
+
+from retry_client import ResilientClient, RetryConfig
 
 # Process exit codes (see module docstring).
 EXIT_OK = 0
@@ -118,15 +125,6 @@ def parse_expect_json(raw: str) -> dict[str, str]:
     return out
 
 
-def build_ssl_context(insecure_tls: bool) -> ssl.SSLContext | None:
-    if not insecure_tls:
-        return None
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return ctx
-
-
 def coerce_expected_value(v: str) -> bool | int | float | str | None:
     """
     Coerce "true"/"false"/"null"/numbers to comparable Python types.
@@ -149,64 +147,6 @@ def coerce_expected_value(v: str) -> bool | int | float | str | None:
     except ValueError:
         pass
     return v
-
-
-def safe_decode_body(data: bytes) -> str:
-    # Prefer utf-8; fallback to latin-1 to avoid crashes on weird payloads
-    try:
-        return data.decode("utf-8")
-    except UnicodeDecodeError:
-        return data.decode("latin-1", errors="replace")
-
-
-def request_once(
-    url: str,
-    method: str,
-    headers: dict[str, str],
-    timeout_seconds: int,
-    follow_redirects: bool,
-    ssl_context: ssl.SSLContext | None,
-) -> tuple[int | None, bytes | None, str | None]:
-    """
-    Returns: (status_code, body_bytes, error_string)
-    """
-    req = urllib.request.Request(url=url, method=method.upper(), headers=headers)
-
-    handlers: list[urllib.request.BaseHandler] = []
-
-    # Attach TLS context via HTTPSHandler (opener.open doesn't accept `context=...`)
-    if ssl_context is not None:
-        handlers.append(urllib.request.HTTPSHandler(context=ssl_context))
-
-    if not follow_redirects:
-        # Disable redirects by installing a redirect handler that raises.
-        class NoRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, req, fp, code, msg, hdrs, newurl):  # type: ignore[no-untyped-def]
-                raise urllib.error.HTTPError(req.full_url, code, "redirect_disabled", hdrs, fp)
-
-        handlers.append(NoRedirect())
-
-    opener = urllib.request.build_opener(*handlers)
-
-    try:
-        with opener.open(req, timeout=timeout_seconds) as resp:
-            status = getattr(resp, "status", None) or resp.getcode()
-            body = resp.read()
-            return status, body, None
-
-    except urllib.error.HTTPError as e:
-        # HTTPError still has a status code and body
-        try:
-            body = e.read() if hasattr(e, "read") else b""
-        except Exception:
-            body = b""
-        return int(getattr(e, "code", 0) or 0), body, f"HTTPError: {e}"
-
-    except urllib.error.URLError as e:
-        return None, None, f"URLError: {e}"
-
-    except Exception as e:
-        return None, None, f"Error: {e}"
 
 
 def validate_json(body_text: str, rules: dict[str, str]) -> tuple[bool, str]:
@@ -286,6 +226,92 @@ def read_config() -> Config:
     )
 
 
+def build_client(config: Config) -> ResilientClient:
+    """Create a ResilientClient tuned from the health-check config."""
+    retry_config = RetryConfig(
+        max_retries=config.retries,
+        base_delay=max(0, config.retry_delay_ms) / 1000.0,
+        # Deterministic backoff for a health check; jitter matters for fleets.
+        jitter=False,
+    )
+    return ResilientClient(
+        config=retry_config,
+        timeout=config.timeout_seconds,
+        logger=lambda msg: log_json("debug", "client", msg=msg),
+    )
+
+
+def _suppress_insecure_tls_warning() -> None:
+    """Silence urllib3's warning when TLS verification is intentionally disabled."""
+    try:
+        import urllib3
+
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    except Exception:
+        pass
+
+
+def check_target(config: Config, client: ResilientClient, target: str) -> bool:
+    """Run one endpoint check, log the outcome, and return True when healthy."""
+    start = time.time()
+    try:
+        resp: Any = client.request(
+            config.method,
+            target,
+            headers=config.headers,
+            verify=not config.insecure_tls,
+            allow_redirects=config.follow_redirects,
+        )
+    except requests.RequestException as e:
+        duration_ms = int((time.time() - start) * 1000)
+        log_json(
+            "error",
+            "endpoint_unhealthy",
+            url=target,
+            status=None,
+            duration_ms=duration_ms,
+            error=f"{type(e).__name__}: {e}",
+        )
+        return False
+
+    duration_ms = int((time.time() - start) * 1000)
+    status = resp.status_code
+    status_ok = status in config.expect_status
+
+    json_ok, json_reason = True, ""
+    if status_ok and config.expect_json_rules:
+        json_ok, json_reason = validate_json(resp.text, config.expect_json_rules)
+
+    if status_ok and json_ok:
+        log_json("info", "check_ok", url=target, status=status, duration_ms=duration_ms)
+        return True
+
+    if not status_ok:
+        reason = f"unexpected_status:{status}"
+    else:
+        reason = f"json_check_failed:{json_reason}"
+    snippet = resp.text[:300].replace("\n", "\\n")
+    log_json(
+        "error",
+        "endpoint_unhealthy",
+        url=target,
+        status=status,
+        duration_ms=duration_ms,
+        reason=reason,
+        body_snippet=snippet,
+    )
+    return False
+
+
+def run_checks(config: Config, client: ResilientClient) -> bool:
+    """Check every target. Returns True if any check failed."""
+    any_failed = False
+    for target in config.targets:
+        if not check_target(config, client, target):
+            any_failed = True
+    return any_failed
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         config = read_config()
@@ -293,113 +319,24 @@ def main(argv: list[str] | None = None) -> int:
         log_json("error", "config_error", error=str(e))
         return EXIT_CONFIG
 
-    targets = config.targets
-    method = config.method
-    timeout_seconds = config.timeout_seconds
-    retries = config.retries
-    retry_delay_ms = config.retry_delay_ms
-    expect_status = config.expect_status
-    expect_json_rules = config.expect_json_rules
-    headers = config.headers
-
-    ssl_context = build_ssl_context(config.insecure_tls)
-    follow_redirects = config.follow_redirects
+    if config.insecure_tls:
+        _suppress_insecure_tls_warning()
 
     log_json(
         "info",
         "run_start",
-        targets=targets,
-        method=method,
-        timeout_seconds=timeout_seconds,
-        retries=retries,
-        expect_status=expect_status,
-        expect_json=expect_json_rules,
+        targets=config.targets,
+        method=config.method,
+        timeout_seconds=config.timeout_seconds,
+        retries=config.retries,
+        expect_status=config.expect_status,
+        expect_json=config.expect_json_rules,
         insecure_tls=config.insecure_tls,
-        follow_redirects=follow_redirects,
+        follow_redirects=config.follow_redirects,
     )
 
-    any_failed = False
-
-    for target in targets:
-        attempt = 0
-        ok = False
-        last_err = ""
-        last_status: int | None = None
-        last_body_snippet = ""
-
-        while attempt <= retries:
-            attempt += 1
-            start = time.time()
-
-            status, body, err = request_once(
-                url=target,
-                method=method,
-                headers=headers,
-                timeout_seconds=timeout_seconds,
-                follow_redirects=follow_redirects,
-                ssl_context=ssl_context,
-            )
-
-            duration_ms = int((time.time() - start) * 1000)
-            last_status = status
-            last_err = err or ""
-
-            body_text = ""
-            if body is not None:
-                body_text = safe_decode_body(body)
-                last_body_snippet = body_text[:300].replace("\n", "\\n")
-
-            status_ok = status in expect_status if status is not None else False
-            json_ok, json_reason = True, ""
-            if status_ok and expect_json_rules:
-                json_ok, json_reason = validate_json(body_text, expect_json_rules)
-
-            ok = bool(status_ok and json_ok and not err)
-
-            if ok:
-                log_json(
-                    "info",
-                    "check_ok",
-                    url=target,
-                    status=status,
-                    duration_ms=duration_ms,
-                )
-                break
-
-            reason = ""
-            if err:
-                reason = err
-            elif not status_ok:
-                reason = f"unexpected_status:{status}"
-            elif not json_ok:
-                reason = f"json_check_failed:{json_reason}"
-            else:
-                reason = "unknown_failure"
-
-            log_json(
-                "warn",
-                "check_failed",
-                url=target,
-                status=status,
-                duration_ms=duration_ms,
-                attempt=attempt,
-                retries=retries,
-                reason=reason,
-                body_snippet=last_body_snippet,
-            )
-
-            if attempt <= retries:
-                time.sleep(max(0, retry_delay_ms) / 1000.0)
-
-        if not ok:
-            any_failed = True
-            log_json(
-                "error",
-                "endpoint_unhealthy",
-                url=target,
-                status=last_status,
-                error=last_err,
-            )
+    client = build_client(config)
+    any_failed = run_checks(config, client)
 
     if any_failed:
         log_json("error", "run_done", result="failed")
