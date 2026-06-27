@@ -7,12 +7,14 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Feliciano S. Prochera Jr." }]
 keywords = ["devops", "ops", "mysql", "backup", "observability", "automation"]
-dependencies = [
-    "PyMySQL>=1.0.0",
-    "requests>=2.25.0",
-]
+# Most tools are stdlib-only; runtime deps are scoped per tool below.
+dependencies = []
 
 [project.optional-dependencies]
+# Per-tool runtime extras: install only what a given tool needs.
+reconciliation = ["PyMySQL>=1.0.0"]              # reconciliation_checker.py
+http = ["requests>=2.25.0"]                      # retry_client.py, api_health_check.py
+all = ["python-ops-tools[reconciliation,http]"]  # every tool's runtime deps
 dev = [
     "pytest>=7.0",
     "ruff>=0.4",

@@ -1,3 +1,28 @@
+Metadata-Version: 2.4
+Name: python-ops-tools
+Version: 0.2.0
+Summary: Pragmatic Python utilities for DevOps and infrastructure tasks: backups, reconciliation, log alerting, a resilient HTTP client, and backup verification.
+Author: Feliciano S. Prochera Jr.
+License: MIT
+Keywords: devops,ops,mysql,backup,observability,automation
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Provides-Extra: reconciliation
+Requires-Dist: PyMySQL>=1.0.0; extra == "reconciliation"
+Provides-Extra: http
+Requires-Dist: requests>=2.25.0; extra == "http"
+Provides-Extra: all
+Requires-Dist: python-ops-tools[http,reconciliation]; extra == "all"
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Requires-Dist: ruff>=0.4; extra == "dev"
+Requires-Dist: mypy>=1.8; extra == "dev"
+Requires-Dist: types-requests; extra == "dev"
+Requires-Dist: types-PyMySQL; extra == "dev"
+Requires-Dist: pre-commit>=3.5; extra == "dev"
+Dynamic: license-file
+
 # Python Ops Tools
 
 [![CI](https://github.com/felicianopj-dev/python-ops-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/felicianopj-dev/python-ops-tools/actions/workflows/ci.yml)
