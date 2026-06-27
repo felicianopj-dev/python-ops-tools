@@ -59,7 +59,7 @@ def utc_ts() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def log_json(level: str, event: str, **fields) -> None:
+def log_json(level: str, event: str, **fields: object) -> None:
     payload = {"ts": utc_ts(), "level": level, "event": event, **fields}
     print(json.dumps(payload, ensure_ascii=False))
 
@@ -172,7 +172,7 @@ def request_once(
     """
     req = urllib.request.Request(url=url, method=method.upper(), headers=headers)
 
-    handlers = []
+    handlers: list[urllib.request.BaseHandler] = []
 
     # Attach TLS context via HTTPSHandler (opener.open doesn't accept `context=...`)
     if ssl_context is not None:
@@ -181,7 +181,7 @@ def request_once(
     if not follow_redirects:
         # Disable redirects by installing a redirect handler that raises.
         class NoRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+            def redirect_request(self, req, fp, code, msg, hdrs, newurl):  # type: ignore[no-untyped-def]
                 raise urllib.error.HTTPError(req.full_url, code, "redirect_disabled", hdrs, fp)
 
         handlers.append(NoRedirect())

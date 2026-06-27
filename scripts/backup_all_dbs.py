@@ -145,7 +145,8 @@ def dump_database_gzip(config: ServerConfig, db_name: str, run_ts: str) -> str:
 
         try:
             assert proc.stdout is not None
-            for chunk in iter(lambda: proc.stdout.read(1024 * 64), b""):
+            stdout = proc.stdout
+            for chunk in iter(lambda: stdout.read(1024 * 64), b""):
                 gz.write(chunk)
 
             stderr = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""

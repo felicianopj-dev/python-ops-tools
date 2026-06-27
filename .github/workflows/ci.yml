@@ -32,5 +32,8 @@ jobs:
           ruff check scripts tests
           ruff format --check scripts tests
 
+      - name: Type check (mypy)
+        run: mypy scripts
+
       - name: Run tests
         run: pytest

@@ -3,3 +3,6 @@
 #   pip install -r requirements.txt -r requirements-dev.txt
 pytest>=7.0
 ruff>=0.4
+mypy>=1.8
+types-requests
+types-PyMySQL

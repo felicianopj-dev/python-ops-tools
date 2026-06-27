@@ -37,6 +37,7 @@ pip install -r requirements.txt -r requirements-dev.txt
 pytest            # run the test suite
 ruff check .      # lint
 ruff format .     # auto-format
+mypy scripts      # type check
 ```
 
 ---

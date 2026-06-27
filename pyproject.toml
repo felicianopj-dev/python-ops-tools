@@ -16,6 +16,9 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "ruff>=0.4",
+    "mypy>=1.8",
+    "types-requests",
+    "types-PyMySQL",
 ]
 
 [tool.ruff]
@@ -30,6 +33,17 @@ select = ["E", "F", "I", "B", "UP"]
 ignore = [
     "E501",  # line length is enforced by the formatter, not the linter
 ]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["scripts"]
+# Scripts are flat top-level modules (mirrors pytest's pythonpath).
+mypy_path = "scripts"
+disallow_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+no_implicit_optional = true
 
 [tool.pytest.ini_options]
 # Scripts are imported directly by tests (they are not packaged into a module),
