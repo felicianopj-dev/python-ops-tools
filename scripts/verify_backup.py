@@ -183,7 +183,7 @@ def restore_dump(path: str, database: str) -> None:
     proc = subprocess.Popen(
         cmd,
         stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         env=build_env(),
     )
@@ -198,7 +198,10 @@ def restore_dump(path: str, database: str) -> None:
         proc.wait()
         raise RestoreError(f"could not read dump file {path}: {e}") from e
 
-    _, stderr = proc.communicate()
+    # stdin is already closed; read stderr and wait directly. (Calling
+    # communicate() here would try to flush the closed stdin on Python 3.12+.)
+    stderr = proc.stderr.read() if proc.stderr else b""
+    proc.wait()
     if proc.returncode != 0:
         msg = stderr.decode("utf-8", errors="replace").strip()
         raise RestoreError(f"restore failed: {msg or 'mysql exited non-zero'}")

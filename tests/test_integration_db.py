@@ -74,7 +74,10 @@ def mysql_env():
             container.start()
         except Exception as e:  # Docker missing / cannot pull image, etc.
             pytest.skip(f"could not start a MySQL testcontainer: {e}")
-        os.environ["DB_HOST"] = container.get_container_host_ip()
+        host = container.get_container_host_ip()
+        # The mysql/mysqldump CLIs treat "localhost" as a unix socket and ignore
+        # -P/the TCP port; force a TCP host so the exposed container port is used.
+        os.environ["DB_HOST"] = "127.0.0.1" if host in ("localhost", "") else host
         os.environ["DB_PORT"] = str(container.get_exposed_port(3306))
         os.environ["DB_USER"] = "root"
         os.environ["MYSQL_PWD"] = "ops"

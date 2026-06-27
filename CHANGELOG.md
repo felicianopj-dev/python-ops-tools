@@ -44,6 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `api_health_check.py` exit codes now follow the repo scheme: `1` when checks
   ran but found problems, `2` for configuration errors (previously `2`/`3`).
+- `verify_backup.py` restore no longer raises `ValueError: flush of closed file`
+  on Python 3.12: it drains stderr and waits instead of calling `communicate()`
+  after closing the mysql process's stdin (found by the new integration tests).
 
 ## [0.1.0]
 
