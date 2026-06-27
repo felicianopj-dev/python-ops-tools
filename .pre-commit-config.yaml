@@ -1,0 +1,10 @@
+# Local pre-commit hooks. Install once with `pre-commit install`, then ruff
+# lint + format run automatically on `git commit` (matching what CI enforces).
+# Run against everything with: pre-commit run --all-files
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format

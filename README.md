@@ -38,6 +38,8 @@ pytest            # run the test suite
 ruff check .      # lint
 ruff format .     # auto-format
 mypy scripts      # type check
+
+pre-commit install   # one-time: run ruff lint+format automatically on commit
 ```
 
 ---
