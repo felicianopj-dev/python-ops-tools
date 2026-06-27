@@ -44,6 +44,8 @@ from typing import Any
 
 import requests
 
+import oplog
+
 
 # --------------------------------------------------------------------------- #
 # Cached response value object
@@ -379,6 +381,11 @@ def _parse_args(argv: list | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--timeout", type=float, default=10.0, help="Per-request timeout (seconds)."
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Also emit a machine-readable JSON summary line (or set LOG_JSON=1).",
+    )
     return parser.parse_args(argv)
 
 
@@ -424,6 +431,18 @@ def main(argv: list | None = None) -> int:
             print(f"Replay failed: {exc}", file=sys.stderr)
             return 3
         _describe("Replay", resp2)
+
+    if oplog.want_json(args.json):
+        oplog.log(
+            "info" if resp.ok else "error",
+            "retry_result",
+            as_json=True,
+            url=args.url,
+            method=args.method.upper(),
+            status=resp.status_code,
+            ok=bool(resp.ok),
+            from_cache=getattr(resp, "from_cache", False),
+        )
 
     return 0 if resp.ok else 3
 

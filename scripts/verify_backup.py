@@ -49,6 +49,8 @@ import subprocess
 import sys
 from datetime import datetime
 
+import oplog
+
 # Process exit codes (see module docstring).
 EXIT_PASS = 0
 EXIT_FAIL = 1
@@ -265,11 +267,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Do not drop the temp database afterwards (for debugging).",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Also emit a machine-readable JSON summary line (or set LOG_JSON=1).",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    as_json = oplog.want_json(args.json)
 
     # Validate inputs early.
     if not os.path.isfile(args.backup_file):
@@ -312,14 +320,16 @@ def main(argv: list[str] | None = None) -> int:
         except RestoreError as e:
             results.append(("restore", False, str(e)))
             # Without a successful restore the remaining checks are meaningless.
-            return _finish(results, temp_db, created, args.keep_temp_db)
+            return _finish(results, temp_db, created, args.keep_temp_db, as_json=as_json)
 
         # Table count checks.
         try:
             n_tables = count_tables(temp_db)
         except RuntimeFailure as e:
             print(f"Error: could not query restored database: {e}", file=sys.stderr)
-            return _finish(results, temp_db, created, args.keep_temp_db, runtime=True)
+            return _finish(
+                results, temp_db, created, args.keep_temp_db, runtime=True, as_json=as_json
+            )
 
         if args.expected_tables is not None:
             ok = n_tables == args.expected_tables
@@ -355,7 +365,7 @@ def main(argv: list[str] | None = None) -> int:
                 # A missing/unqueryable critical table is a failed check.
                 results.append((f"rows:{table}", False, f"query error: {e}"))
 
-        return _finish(results, temp_db, created, args.keep_temp_db)
+        return _finish(results, temp_db, created, args.keep_temp_db, as_json=as_json)
 
     finally:
         # Cleanup always runs, even on unexpected errors above.
@@ -375,12 +385,25 @@ def _finish(
     created: bool,
     keep_temp_db: bool,
     runtime: bool = False,
+    as_json: bool = False,
 ) -> int:
     """Print the PASS/FAIL report and return the appropriate exit code."""
     print_report(results, temp_db, keep_temp_db)
+    all_passed = bool(results) and all(passed for _, passed, _ in results)
+    if as_json:
+        failed = [name for name, passed, _ in results if not passed]
+        oplog.log(
+            "info" if all_passed and not runtime else "error",
+            "verify_result",
+            as_json=True,
+            overall="PASS" if all_passed and not runtime else "FAIL",
+            checks=len(results),
+            failed=failed,
+            temp_db=temp_db,
+            runtime_error=runtime,
+        )
     if runtime:
         return EXIT_RUNTIME
-    all_passed = bool(results) and all(passed for _, passed, _ in results)
     return EXIT_PASS if all_passed else EXIT_FAIL
 
 

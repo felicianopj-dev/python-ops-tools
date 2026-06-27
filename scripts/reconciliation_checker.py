@@ -57,6 +57,8 @@ import os
 import sys
 from typing import Any
 
+import oplog
+
 # Process exit codes (see module docstring).
 EXIT_OK = 0
 EXIT_DISCREPANCIES = 1
@@ -353,6 +355,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="csv_path",
         help="Optional path to also write a CSV discrepancy report.",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Also emit a machine-readable JSON summary line (or set LOG_JSON=1).",
+    )
     return parser.parse_args(argv)
 
 
@@ -421,6 +428,21 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nCSV report written to: {args.csv_path}")
 
     total_issues = len(missing_in_remote) + len(missing_in_local) + len(mismatches)
+
+    if oplog.want_json(args.json):
+        oplog.log(
+            "info" if total_issues == 0 else "warn",
+            "reconciliation_result",
+            as_json=True,
+            key=args.key,
+            local_count=len(local_index),
+            remote_count=len(api_index),
+            missing_in_remote=len(missing_in_remote),
+            missing_in_local=len(missing_in_local),
+            mismatches=len(mismatches),
+            total_issues=total_issues,
+        )
+
     return EXIT_OK if total_issues == 0 else EXIT_DISCREPANCIES
 
 

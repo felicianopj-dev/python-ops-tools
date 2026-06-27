@@ -49,11 +49,11 @@ import os
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any
 
 import requests
 
+import oplog
 from retry_client import ResilientClient, RetryConfig
 
 # Process exit codes (see module docstring).
@@ -61,14 +61,13 @@ EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_CONFIG = 2
 
+# Output mode for log_json; defaults to JSON, switchable via LOG_JSON (set in main).
+_JSON_MODE = True
 
-def utc_ts() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
-
-def log_json(level: str, event: str, **fields: object) -> None:
-    payload = {"ts": utc_ts(), "level": level, "event": event, **fields}
-    print(json.dumps(payload, ensure_ascii=False))
+def log_json(level: str, event: str, **fields: Any) -> None:
+    """Emit a structured log record (JSON by default; human text when LOG_JSON=0)."""
+    oplog.log(level, event, as_json=_JSON_MODE, **fields)
 
 
 def env_int(name: str, default: int) -> int:
@@ -313,6 +312,8 @@ def run_checks(config: Config, client: ResilientClient) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global _JSON_MODE
+    _JSON_MODE = oplog.want_json(default=True)
     try:
         config = read_config()
     except ValueError as e:

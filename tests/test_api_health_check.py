@@ -194,7 +194,9 @@ def test_main_success_and_failure_paths(monkeypatch):
     monkeypatch.setenv("URL", "https://a.com")
     monkeypatch.setenv("RETRIES", "0")
 
-    monkeypatch.setattr("api_health_check.build_client", lambda cfg: _client(FakeResponse(200, "{}")))
+    monkeypatch.setattr(
+        "api_health_check.build_client", lambda cfg: _client(FakeResponse(200, "{}"))
+    )
     assert main() == EXIT_OK
 
     monkeypatch.setattr("api_health_check.build_client", lambda cfg: _client(FakeResponse(404, "")))

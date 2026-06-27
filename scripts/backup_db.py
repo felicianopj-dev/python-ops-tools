@@ -16,6 +16,8 @@ run from cron or inside containers without hard-coded credentials:
   DB_PASSWORD  Password (optional; passed to mysqldump via MYSQL_PWD)
   MYSQL_PWD    Password fallback (standard MySQL env var) if DB_PASSWORD is unset
 
+Set LOG_JSON=1 to emit machine-readable JSON lines instead of human text.
+
 Exit codes:
   0  backup created successfully
   2  configuration error (missing required environment variables)
@@ -27,6 +29,8 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime
+
+import oplog
 
 # Process exit codes (see module docstring).
 EXIT_OK = 0
@@ -129,27 +133,47 @@ def run_backup(config: BackupConfig) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    as_json = oplog.want_json()
+
     try:
         config = read_config()
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
+        if as_json:
+            oplog.log("error", "config_error", as_json=True, error=str(e), stream=sys.stderr)
+        else:
+            print(f"Error: {e}", file=sys.stderr)
         return EXIT_CONFIG
 
     try:
         filename = run_backup(config)
     except subprocess.CalledProcessError as e:
-        detail = ""
+        reason = ""
         if e.stderr:
             stderr = (
                 e.stderr.decode("utf-8", errors="replace")
                 if isinstance(e.stderr, bytes)
                 else e.stderr
             )
-            detail = f": {stderr.strip()}"
-        print(f"Error: mysqldump failed (exit {e.returncode}){detail}.", file=sys.stderr)
+            reason = stderr.strip()
+        if as_json:
+            oplog.log(
+                "error",
+                "backup_failed",
+                as_json=True,
+                db=config.db_name,
+                returncode=e.returncode,
+                error=reason or None,
+                stream=sys.stderr,
+            )
+        else:
+            detail = f": {reason}" if reason else ""
+            print(f"Error: mysqldump failed (exit {e.returncode}){detail}.", file=sys.stderr)
         return EXIT_DUMP
 
-    print(f"Backup created: {filename}")
+    if as_json:
+        oplog.log("info", "backup_ok", as_json=True, db=config.db_name, file=filename)
+    else:
+        print(f"Backup created: {filename}")
     return EXIT_OK
 
 

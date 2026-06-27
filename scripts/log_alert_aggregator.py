@@ -51,6 +51,8 @@ import re
 import sys
 from collections import OrderedDict
 
+import oplog
+
 # Severities we know about, ordered from most to least severe.
 SEVERITY_ORDER = ["CRITICAL", "ERROR", "WARNING"]
 SEVERITY_RANK = {name: i for i, name in enumerate(SEVERITY_ORDER)}
@@ -446,6 +448,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Print the summary to stdout instead of sending it.",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Also emit a machine-readable JSON summary line (or set LOG_JSON=1).",
+    )
     return parser.parse_args(argv)
 
 
@@ -476,8 +483,23 @@ def main(argv: list[str] | None = None) -> int:
         max_msg_len=args.max_msg_len,
     )
 
+    as_json = oplog.want_json(args.json)
+
+    def emit_result(sent: bool) -> None:
+        if as_json:
+            oplog.log(
+                "info",
+                "log_alert_result",
+                as_json=True,
+                scanned_files=len(files),
+                groups=len(groups),
+                include_warnings=args.include_warnings,
+                sent=sent,
+            )
+
     if args.dry_run:
         print(summary)
+        emit_result(sent=False)
         return EXIT_OK
 
     payload = build_payload(summary)
@@ -488,6 +510,7 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_SEND
 
     print(f"Summary sent to webhook ({len(files)} file(s) scanned).")
+    emit_result(sent=True)
     return EXIT_OK
 
 

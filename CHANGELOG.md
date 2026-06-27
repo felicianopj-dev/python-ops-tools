@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Shared `scripts/oplog.py` logging helper (structured JSON or human text). Tools
+  that print human reports gained a `--json` flag (and respect `LOG_JSON`) to also
+  emit a machine-readable summary line; the JSON-emitting tools accept `LOG_JSON=0`
+  to switch to human text. Removes the duplicated `utc_ts`/`log_json` helpers.
+
 ### Changed
 
 - `api_health_check.py` now performs HTTP via `retry_client.ResilientClient`

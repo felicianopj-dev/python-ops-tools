@@ -19,13 +19,15 @@ Configuration (environment variables):
 """
 
 import gzip
-import json
 import os
 import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
+
+import oplog
 
 # System databases that should never be backed up.
 SYSTEM_DBS = {"information_schema", "mysql", "performance_schema", "sys"}
@@ -43,15 +45,13 @@ class ServerConfig:
     gzip_level: int
 
 
-def utc_ts() -> str:
-    """Return the current UTC time as an ISO-8601 string with a trailing Z."""
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+# Output mode for log_json; defaults to JSON, switchable via LOG_JSON (set in main).
+_JSON_MODE = True
 
 
-def log_json(level: str, event: str, **fields: object) -> None:
-    """Emit a single-line JSON log record to stdout."""
-    payload = {"ts": utc_ts(), "level": level, "event": event, **fields}
-    print(json.dumps(payload, ensure_ascii=False))
+def log_json(level: str, event: str, **fields: Any) -> None:
+    """Emit a structured log record (JSON by default; human text when LOG_JSON=0)."""
+    oplog.log(level, event, as_json=_JSON_MODE, **fields)
 
 
 def read_config() -> ServerConfig:
@@ -183,6 +183,8 @@ def dump_database_gzip(config: ServerConfig, db_name: str, run_ts: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global _JSON_MODE
+    _JSON_MODE = oplog.want_json(default=True)
     try:
         config = read_config()
     except ValueError as e:
