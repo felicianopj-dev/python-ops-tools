@@ -42,6 +42,8 @@ mypy scripts      # type check
 pre-commit install   # one-time: run ruff lint+format automatically on commit
 ```
 
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
+
 ---
 
 ### MySQL Single Database Backup
