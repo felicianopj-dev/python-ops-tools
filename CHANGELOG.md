@@ -7,23 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- Per-tool packaging extras: `reconciliation` (PyMySQL) and `http` (requests),
-  plus an `all` convenience extra. Core `dependencies` is now empty (most tools
-  are stdlib-only); `requirements.txt` still installs everything.
-- Shared `scripts/oplog.py` logging helper (structured JSON or human text). Tools
-  that print human reports gained a `--json` flag (and respect `LOG_JSON`) to also
-  emit a machine-readable summary line; the JSON-emitting tools accept `LOG_JSON=0`
-  to switch to human text. Removes the duplicated `utc_ts`/`log_json` helpers.
-
-### Changed
-
-- `api_health_check.py` now performs HTTP via `retry_client.ResilientClient`
-  instead of `urllib`, unifying retry/backoff behaviour. Retries now apply only
-  to transient failures (timeouts, connection errors, 5xx/408/429); other
-  unexpected statuses fail fast instead of being retried.
-
 ## [0.2.0]
 
 ### Added
@@ -32,7 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `types-requests`/`types-PyMySQL` stubs.
 - `.pre-commit-config.yaml` running the `ruff` lint + format hooks locally.
 - Test suites for the three earliest scripts (`api_health_check`, `backup_db`,
-  `backup_all_dbs`); the suite grew from 47 to 76 tests.
+  `backup_all_dbs`); the unit suite grew from 47 to 84 tests.
+- Shared `scripts/oplog.py` logging helper (structured JSON or human text). Tools
+  that print human reports gained a `--json` flag (and respect `LOG_JSON`) to also
+  emit a machine-readable summary line; the JSON-emitting tools accept `LOG_JSON=0`
+  to switch to human text. Removes the duplicated `utc_ts`/`log_json` helpers.
+- Per-tool packaging extras: `reconciliation` (PyMySQL) and `http` (requests),
+  plus an `all` convenience extra. Core `dependencies` is now empty (most tools
+  are stdlib-only); `requirements.txt` still installs everything.
+- Gated DB integration tests (`pytest -m integration`) that exercise the backup,
+  verify and reconciliation tools against a live MySQL (via env vars or
+  `testcontainers`), plus a CI `integration` job using a `services: mysql`.
 
 ### Changed
 
@@ -42,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `DB_PASSWORD`/`MYSQL_PWD` (via `build_env`), mirroring `verify_backup.py`;
   `backup_db.py` also dumps routines/triggers/events and surfaces `mysqldump`
   stderr on failure.
+- `api_health_check.py` now performs HTTP via `retry_client.ResilientClient`
+  instead of `urllib`, unifying retry/backoff behaviour. Retries now apply only
+  to transient failures (timeouts, connection errors, 5xx/408/429); other
+  unexpected statuses fail fast instead of being retried.
 
 ### Fixed
 

@@ -22,6 +22,7 @@ dev = [
     "types-requests",
     "types-PyMySQL",
     "pre-commit>=3.5",
+    "testcontainers[mysql]>=4.0",
 ]
 
 [tool.ruff]
@@ -54,3 +55,6 @@ no_implicit_optional = true
 pythonpath = ["scripts"]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "integration: needs a live MySQL (skipped unless one is available)",
+]

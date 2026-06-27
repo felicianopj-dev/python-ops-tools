@@ -7,3 +7,4 @@ mypy>=1.8
 types-requests
 types-PyMySQL
 pre-commit>=3.5
+testcontainers[mysql]>=4.0
