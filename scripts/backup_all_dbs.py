@@ -10,8 +10,10 @@ script emits single-line JSON logs suitable for log aggregation.
 
 Configuration (environment variables):
   DB_HOST      Server host (default: localhost)
+  DB_PORT      Server port (default: 3306)
   DB_USER      User name (required)
   DB_PASSWORD  Password (optional; passed to subprocesses via MYSQL_PWD)
+  MYSQL_PWD    Password fallback (standard MySQL env var) if DB_PASSWORD is unset
   BACKUP_DIR   Output directory (default: ./backups)
   GZIP_LEVEL   gzip compression level 1..9 (default: 6)
 """
@@ -34,6 +36,7 @@ class ServerConfig:
     """Connection and output settings for a full-server backup run."""
 
     db_host: str
+    db_port: str
     db_user: str
     db_password: str
     backup_dir: str
@@ -55,21 +58,31 @@ def read_config() -> ServerConfig:
     """
     Read server/backup settings from the environment.
 
-    Raises ValueError when DB_USER is missing.
+    Raises ValueError when DB_USER is missing or GZIP_LEVEL is invalid.
     """
     db_user = os.getenv("DB_USER")
     if not db_user:
         raise ValueError("DB_USER environment variable is required.")
+
+    raw_level = os.getenv("GZIP_LEVEL", "6")
+    try:
+        gzip_level = int(raw_level)
+    except ValueError:
+        raise ValueError(f"GZIP_LEVEL must be an integer 1..9, got: {raw_level!r}") from None
+    if not 1 <= gzip_level <= 9:
+        raise ValueError(f"GZIP_LEVEL must be between 1 and 9, got: {gzip_level}")
+
     return ServerConfig(
         db_host=os.getenv("DB_HOST", "localhost"),
+        db_port=os.getenv("DB_PORT", "3306"),
         db_user=db_user,
-        db_password=os.getenv("DB_PASSWORD", ""),
+        db_password=os.getenv("DB_PASSWORD", "") or os.getenv("MYSQL_PWD", ""),
         backup_dir=os.getenv("BACKUP_DIR", "./backups"),
-        gzip_level=int(os.getenv("GZIP_LEVEL", "6")),
+        gzip_level=gzip_level,
     )
 
 
-def build_env(config: ServerConfig) -> dict:
+def build_env(config: ServerConfig) -> dict[str, str]:
     """
     Build the subprocess environment, passing the password via MYSQL_PWD.
 
@@ -83,7 +96,7 @@ def build_env(config: ServerConfig) -> dict:
 
 def mysql_base_cmd(config: ServerConfig) -> list[str]:
     """Base `mysql` command used to enumerate databases."""
-    return ["mysql", "-h", config.db_host, "-u", config.db_user]
+    return ["mysql", "-h", config.db_host, "-P", config.db_port, "-u", config.db_user]
 
 
 def mysqldump_base_cmd(config: ServerConfig) -> list[str]:
@@ -92,6 +105,8 @@ def mysqldump_base_cmd(config: ServerConfig) -> list[str]:
         "mysqldump",
         "-h",
         config.db_host,
+        "-P",
+        config.db_port,
         "-u",
         config.db_user,
         "--single-transaction",
@@ -166,7 +181,7 @@ def dump_database_gzip(config: ServerConfig, db_name: str, run_ts: str) -> str:
     return str(filename)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     try:
         config = read_config()
     except ValueError as e:

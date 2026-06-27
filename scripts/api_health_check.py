@@ -35,8 +35,8 @@ Examples:
 
 Exit codes:
   0  all checks ok
-  2  one or more checks failed
-  3  misconfiguration (missing URL/TARGETS, invalid EXPECT_* etc.)
+  1  one or more checks failed (ran but found problems)
+  2  misconfiguration (missing URL/TARGETS, invalid EXPECT_* etc.)
 """
 
 import json
@@ -46,7 +46,13 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+
+# Process exit codes (see module docstring).
+EXIT_OK = 0
+EXIT_FAILED = 1
+EXIT_CONFIG = 2
 
 
 def utc_ts() -> str:
@@ -121,7 +127,7 @@ def build_ssl_context(insecure_tls: bool) -> ssl.SSLContext | None:
     return ctx
 
 
-def coerce_expected_value(v: str):
+def coerce_expected_value(v: str) -> bool | int | float | str | None:
     """
     Coerce "true"/"false"/"null"/numbers to comparable Python types.
     Otherwise keep as string.
@@ -145,7 +151,7 @@ def coerce_expected_value(v: str):
     return v
 
 
-def safe_decode_body(data: bytes, content_type: str) -> str:
+def safe_decode_body(data: bytes) -> str:
     # Prefer utf-8; fallback to latin-1 to avoid crashes on weird payloads
     try:
         return data.decode("utf-8")
@@ -227,43 +233,77 @@ def validate_json(body_text: str, rules: dict[str, str]) -> tuple[bool, str]:
     return True, ""
 
 
-def main() -> int:
+@dataclass
+class Config:
+    """Resolved settings for a health-check run."""
+
+    targets: list[str]
+    method: str
+    timeout_seconds: int
+    retries: int
+    retry_delay_ms: int
+    insecure_tls: bool
+    follow_redirects: bool
+    expect_status: list[int]
+    expect_json_rules: dict[str, str]
+    headers: dict[str, str] = field(default_factory=dict)
+
+
+def read_config() -> Config:
+    """
+    Read and validate settings from the environment.
+
+    Raises ValueError on misconfiguration (missing URL/TARGETS, invalid EXPECT_*,
+    non-integer numeric vars), which main() maps to EXIT_CONFIG.
+    """
     url = (os.getenv("URL") or "").strip()
     targets_raw = (os.getenv("TARGETS") or "").strip()
-    method = (os.getenv("METHOD") or "GET").strip().upper()
 
-    try:
-        timeout_seconds = env_int("TIMEOUT_SECONDS", 5)
-        retries = env_int("RETRIES", 1)
-        retry_delay_ms = env_int("RETRY_DELAY_MS", 250)
-        insecure_tls = env_bool("INSECURE_TLS", False)
-        follow_redirects = env_bool("FOLLOW_REDIRECTS", True)
-        expect_status = parse_csv_set(os.getenv("EXPECT_STATUS", ""), [200, 204])
-        expect_json_rules = parse_expect_json(os.getenv("EXPECT_JSON", ""))
-    except ValueError as e:
-        log_json("error", "config_error", error=str(e))
-        return 3
-
-    # Resolve targets
     targets: list[str] = []
     if targets_raw:
         targets = [t.strip() for t in targets_raw.split(",") if t.strip()]
     elif url:
         targets = [url]
-
     if not targets:
-        log_json("error", "config_error", error="URL or TARGETS is required")
-        return 3
+        raise ValueError("URL or TARGETS is required")
 
-    # Headers
-    user_agent = os.getenv("USER_AGENT", "python-ops-tools/1.0")
-    headers: dict[str, str] = {"User-Agent": user_agent}
-
+    headers: dict[str, str] = {"User-Agent": os.getenv("USER_AGENT", "python-ops-tools/1.0")}
     auth = os.getenv("HEADER_AUTH")
     if auth and auth.strip():
         headers["Authorization"] = auth.strip()
 
-    ssl_context = build_ssl_context(insecure_tls)
+    return Config(
+        targets=targets,
+        method=(os.getenv("METHOD") or "GET").strip().upper(),
+        timeout_seconds=env_int("TIMEOUT_SECONDS", 5),
+        retries=env_int("RETRIES", 1),
+        retry_delay_ms=env_int("RETRY_DELAY_MS", 250),
+        insecure_tls=env_bool("INSECURE_TLS", False),
+        follow_redirects=env_bool("FOLLOW_REDIRECTS", True),
+        expect_status=parse_csv_set(os.getenv("EXPECT_STATUS", ""), [200, 204]),
+        expect_json_rules=parse_expect_json(os.getenv("EXPECT_JSON", "")),
+        headers=headers,
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    try:
+        config = read_config()
+    except ValueError as e:
+        log_json("error", "config_error", error=str(e))
+        return EXIT_CONFIG
+
+    targets = config.targets
+    method = config.method
+    timeout_seconds = config.timeout_seconds
+    retries = config.retries
+    retry_delay_ms = config.retry_delay_ms
+    expect_status = config.expect_status
+    expect_json_rules = config.expect_json_rules
+    headers = config.headers
+
+    ssl_context = build_ssl_context(config.insecure_tls)
+    follow_redirects = config.follow_redirects
 
     log_json(
         "info",
@@ -274,7 +314,7 @@ def main() -> int:
         retries=retries,
         expect_status=expect_status,
         expect_json=expect_json_rules,
-        insecure_tls=insecure_tls,
+        insecure_tls=config.insecure_tls,
         follow_redirects=follow_redirects,
     )
 
@@ -304,13 +344,9 @@ def main() -> int:
             last_status = status
             last_err = err or ""
 
-            content_type = ""
             body_text = ""
             if body is not None:
-                # Best-effort content-type inference for decoding
-                # (urllib doesn't easily expose headers on errors consistently)
-                content_type = "application/octet-stream"
-                body_text = safe_decode_body(body, content_type)
+                body_text = safe_decode_body(body)
                 last_body_snippet = body_text[:300].replace("\n", "\\n")
 
             status_ok = status in expect_status if status is not None else False
@@ -367,10 +403,10 @@ def main() -> int:
 
     if any_failed:
         log_json("error", "run_done", result="failed")
-        return 2
+        return EXIT_FAILED
 
     log_json("info", "run_done", result="ok")
-    return 0
+    return EXIT_OK
 
 
 if __name__ == "__main__":
