@@ -3,9 +3,9 @@
 [![CI](https://github.com/felicianopj-dev/python-ops-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/felicianopj-dev/python-ops-tools/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A small collection of pragmatic Python utilities for day-to-day DevOps and infrastructure tasks.
+A small collection of pragmatic Python utilities for day-to-day DevOps and automation tasks.
 
-Focused on reliability, explicit configuration via environment variables, and scripts that work well in production environments, cron jobs, and containers. Every tool is dependency-light, typed, and covered by tests.
+Focused on reliability, explicit configuration via environment variables, and scripts that run well in production, cron jobs, and containers. Every tool is dependency-light, typed, and covered by tests — and each runs directly (`python3 scripts/<name>.py`) or imports cleanly for testing.
 
 ## Tools at a glance
 
@@ -377,4 +377,88 @@ python3 scripts/verify_backup.py /var/backups/mysql/app_db_20260626_010000.sql.g
 `1` – verification FAILED (restore error or a failed sanity check)  
 `2` – configuration error (missing `DB_USER`, bad arguments, missing/empty file)  
 `3` – runtime error (could not connect / create / drop the temp database)  
+
+## Automation
+
+These tools are built to run unattended. Configuration comes from the environment (so no secrets live in your crontab or shell history), and every tool returns a meaningful exit code — a non-zero exit fails the cron mail, systemd unit, or CI job on its own, turning a problem into an alert without any extra code.
+
+Keep credentials in a root-owned env file with restricted permissions and source it, rather than inlining passwords (the password always reaches MySQL via `MYSQL_PWD`, never on the command line):
+
+```bash
+# /etc/ops-tools.env  (chmod 600)
+DB_HOST=127.0.0.1
+DB_USER=backup_user
+MYSQL_PWD=...                 # password via env, never on argv
+WEBHOOK_URL=https://hooks.slack.com/services/XXX
+```
+
+### cron
+
+```cron
+# Health check every 5 minutes (a non-zero exit makes cron email you)
+*/5 * * * *  cd /opt/python-ops-tools && python3 scripts/api_health_check.py --url https://api.example.com/health --expect-status 200
+
+# Back up all databases nightly at 02:00
+0 2 * * *    set -a; . /etc/ops-tools.env; set +a; cd /opt/python-ops-tools && BACKUP_DIR=/var/backups/mysql python3 scripts/backup_all_dbs.py
+
+# Weekly: prove the most recent dump is actually restorable (Sun 03:00)
+0 3 * * 0    set -a; . /etc/ops-tools.env; set +a; cd /opt/python-ops-tools && python3 scripts/verify_backup.py "$(ls -t /var/backups/mysql/*.sql.gz | head -1)" --critical-tables users,orders
+```
+
+### systemd timer
+
+A `.service` (what to run) plus a `.timer` (when) — the modern alternative to cron, with output captured in `journalctl` and `EnvironmentFile=` for secrets.
+
+```ini
+# /etc/systemd/system/api-health.service
+[Unit]
+Description=API health check
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/ops-tools.env
+WorkingDirectory=/opt/python-ops-tools
+ExecStart=/usr/bin/python3 scripts/api_health_check.py --url https://api.example.com/health --expect-status 200
+```
+
+```ini
+# /etc/systemd/system/api-health.timer
+[Unit]
+Description=Run the API health check every 5 minutes
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+sudo systemctl enable --now api-health.timer
+systemctl list-timers api-health.timer    # confirm the next scheduled run
+```
+
+### GitHub Actions (scheduled)
+
+Drop this into `.github/workflows/` to run a check on a schedule in CI (and on demand via the "Run workflow" button). The job turns red when the endpoint is unhealthy, so the Actions tab doubles as a lightweight uptime history.
+
+```yaml
+name: Scheduled health check
+on:
+  schedule:
+    - cron: "*/30 * * * *"     # every 30 minutes
+  workflow_dispatch:            # plus a manual trigger
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python3 scripts/api_health_check.py --url https://example.com --expect-status 200
+```
 
