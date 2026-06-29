@@ -14,24 +14,30 @@ with the rest of the toolkit. Transient failures (timeouts, connection errors an
 retryable statuses 5xx/408/429) are retried; other unexpected statuses (e.g. 404)
 are treated as a failed check without pointless retries.
 
-Environment variables:
-  TARGETS            Comma-separated list of URLs (or use URL + optional /health path)
-  URL                Single URL (alternative to TARGETS)
-  METHOD             HTTP method (default: GET)
-  TIMEOUT_SECONDS    Request timeout in seconds (default: 5)
-  RETRIES            Number of retries on transient failure (default: 1)
-  RETRY_DELAY_MS     Base backoff delay in ms (default: 250)
-  EXPECT_STATUS      Expected status code(s), comma-separated (default: 200,204)
-  EXPECT_JSON        Optional JSON validation rules (default: empty)
-                     Format: "key=value,key2=value2" (top-level keys only)
-                     Example: "status=ok,healthy=true"
-  HEADER_AUTH        Optional Authorization header value (e.g. "Bearer xxx")
-  USER_AGENT         User-Agent header (default: python-ops-tools/1.0)
-  INSECURE_TLS       "1" to skip TLS verification (default: 0)  [use with caution]
-  FOLLOW_REDIRECTS   "1" to follow redirects (default: 1)
+Configuration comes from environment variables or matching CLI flags; flags take
+precedence over env vars, which take precedence over the defaults. The optional
+Authorization token is env-only (never passed via argv, to avoid leaking through
+the process list):
+
+  TARGETS / --targets            Comma-separated list of URLs
+  URL / --url                    Single URL (alternative to TARGETS)
+  METHOD / --method              HTTP method (default: GET)
+  TIMEOUT_SECONDS / --timeout-seconds  Request timeout in seconds (default: 5)
+  RETRIES / --retries            Number of retries on transient failure (default: 1)
+  RETRY_DELAY_MS / --retry-delay-ms    Base backoff delay in ms (default: 250)
+  EXPECT_STATUS / --expect-status      Expected status code(s), comma-separated (default: 200,204)
+  EXPECT_JSON / --expect-json    Optional JSON validation rules (default: empty)
+                                 Format: "key=value,key2=value2" (top-level keys only)
+                                 Example: "status=ok,healthy=true"
+  USER_AGENT / --user-agent      User-Agent header (default: python-ops-tools/1.0)
+  INSECURE_TLS / --insecure-tls  Skip TLS verification (default: off)  [use with caution]
+  FOLLOW_REDIRECTS / --follow-redirects  Follow redirects (default: on)
+  HEADER_AUTH                    Optional Authorization header value (e.g. "Bearer xxx"), env-only
 
 Examples:
   URL="https://api.example.com/health" python3 api_health_check.py
+
+  python3 api_health_check.py --url https://api.example.com/health --expect-json status=ok
 
   TARGETS="https://a.com/health,https://b.com/health" \
   EXPECT_STATUS="200" \
@@ -44,6 +50,7 @@ Exit codes:
   2  misconfiguration (missing URL/TARGETS, invalid EXPECT_* etc.)
 """
 
+import argparse
 import json
 import os
 import sys
@@ -188,15 +195,35 @@ class Config:
     headers: dict[str, str] = field(default_factory=dict)
 
 
-def read_config() -> Config:
+def read_config(args: argparse.Namespace | None = None) -> Config:
     """
-    Read and validate settings from the environment.
+    Resolve and validate settings from CLI flags (if given), then the
+    environment, then defaults (flag > env > default).
 
     Raises ValueError on misconfiguration (missing URL/TARGETS, invalid EXPECT_*,
     non-integer numeric vars), which main() maps to EXIT_CONFIG.
     """
-    url = (os.getenv("URL") or "").strip()
-    targets_raw = (os.getenv("TARGETS") or "").strip()
+
+    def _str(name: str, env: str, default: str = "") -> str:
+        flag = getattr(args, name, None)
+        if flag is not None:
+            return str(flag)
+        return os.getenv(env) or default
+
+    def _int(name: str, env: str, default: int) -> int:
+        flag = getattr(args, name, None)
+        if flag is not None:
+            return int(flag)
+        return env_int(env, default)
+
+    def _bool(name: str, env: str, default: bool) -> bool:
+        flag = getattr(args, name, None)
+        if flag is not None:
+            return bool(flag)
+        return env_bool(env, default)
+
+    targets_raw = _str("targets", "TARGETS").strip()
+    url = _str("url", "URL").strip()
 
     targets: list[str] = []
     if targets_raw:
@@ -204,25 +231,69 @@ def read_config() -> Config:
     elif url:
         targets = [url]
     if not targets:
-        raise ValueError("URL or TARGETS is required")
+        raise ValueError("URL or TARGETS is required (set --url/--targets or the env vars)")
 
-    headers: dict[str, str] = {"User-Agent": os.getenv("USER_AGENT", "python-ops-tools/1.0")}
+    headers: dict[str, str] = {
+        "User-Agent": _str("user_agent", "USER_AGENT", "python-ops-tools/1.0")
+    }
+    # The auth token is env-only so it never lands on argv / the process list.
     auth = os.getenv("HEADER_AUTH")
     if auth and auth.strip():
         headers["Authorization"] = auth.strip()
 
     return Config(
         targets=targets,
-        method=(os.getenv("METHOD") or "GET").strip().upper(),
-        timeout_seconds=env_int("TIMEOUT_SECONDS", 5),
-        retries=env_int("RETRIES", 1),
-        retry_delay_ms=env_int("RETRY_DELAY_MS", 250),
-        insecure_tls=env_bool("INSECURE_TLS", False),
-        follow_redirects=env_bool("FOLLOW_REDIRECTS", True),
-        expect_status=parse_csv_set(os.getenv("EXPECT_STATUS", ""), [200, 204]),
-        expect_json_rules=parse_expect_json(os.getenv("EXPECT_JSON", "")),
+        method=_str("method", "METHOD", "GET").strip().upper(),
+        timeout_seconds=_int("timeout_seconds", "TIMEOUT_SECONDS", 5),
+        retries=_int("retries", "RETRIES", 1),
+        retry_delay_ms=_int("retry_delay_ms", "RETRY_DELAY_MS", 250),
+        insecure_tls=_bool("insecure_tls", "INSECURE_TLS", False),
+        follow_redirects=_bool("follow_redirects", "FOLLOW_REDIRECTS", True),
+        expect_status=parse_csv_set(_str("expect_status", "EXPECT_STATUS"), [200, 204]),
+        expect_json_rules=parse_expect_json(_str("expect_json", "EXPECT_JSON")),
         headers=headers,
     )
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Check one or more HTTP endpoints (status + optional JSON checks).",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        epilog="Flags override the matching env vars. The Authorization token is "
+        "env-only (HEADER_AUTH).",
+    )
+    # Defaults are None so an omitted flag falls back to the env var, then the
+    # hardcoded default in read_config (flag > env > default).
+    parser.add_argument("--url", help="Single URL to check (env: URL).")
+    parser.add_argument("--targets", help="Comma-separated list of URLs (env: TARGETS).")
+    parser.add_argument("--method", help="HTTP method (env: METHOD, default: GET).")
+    parser.add_argument(
+        "--timeout-seconds", type=int, help="Request timeout in seconds (env: TIMEOUT_SECONDS)."
+    )
+    parser.add_argument("--retries", type=int, help="Retries on transient failure (env: RETRIES).")
+    parser.add_argument(
+        "--retry-delay-ms", type=int, help="Base backoff delay in ms (env: RETRY_DELAY_MS)."
+    )
+    parser.add_argument(
+        "--expect-status", help="Expected status code(s), comma-separated (env: EXPECT_STATUS)."
+    )
+    parser.add_argument(
+        "--expect-json", help="JSON rules 'key=value,...' on top-level keys (env: EXPECT_JSON)."
+    )
+    parser.add_argument("--user-agent", help="User-Agent header (env: USER_AGENT).")
+    parser.add_argument(
+        "--insecure-tls",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Skip TLS verification (env: INSECURE_TLS).",
+    )
+    parser.add_argument(
+        "--follow-redirects",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Follow redirects (env: FOLLOW_REDIRECTS).",
+    )
+    return parser.parse_args(argv)
 
 
 def build_client(config: Config) -> ResilientClient:
@@ -314,8 +385,9 @@ def run_checks(config: Config, client: ResilientClient) -> bool:
 def main(argv: list[str] | None = None) -> int:
     global _JSON_MODE
     _JSON_MODE = oplog.want_json(default=True)
+    args = parse_args(argv)
     try:
-        config = read_config()
+        config = read_config(args)
     except ValueError as e:
         log_json("error", "config_error", error=str(e))
         return EXIT_CONFIG

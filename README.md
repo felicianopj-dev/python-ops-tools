@@ -13,7 +13,7 @@ Focused on reliability, explicit configuration via environment variables, and sc
 | --- | --- | --- |
 | `scripts/backup_db.py` | Consistent single-database MySQL backup | `DB_NAME=app DB_USER=u python3 scripts/backup_db.py` |
 | `scripts/backup_all_dbs.py` | Back up all non-system databases (gzip + JSON logs) | `DB_USER=u python3 scripts/backup_all_dbs.py` |
-| `scripts/api_health_check.py` | HTTP health checks with status/JSON validation | `URL=https://api/health python3 scripts/api_health_check.py` |
+| `scripts/api_health_check.py` | HTTP health checks with status/JSON validation | `python3 scripts/api_health_check.py --url https://api/health` |
 | `scripts/reconciliation_checker.py` | Compare a DB table vs API records for discrepancies | `python3 scripts/reconciliation_checker.py --local-file data/sample_db_data.json --api-file data/sample_api_data.json` |
 | `scripts/log_alert_aggregator.py` | Aggregate ERROR/CRITICAL logs and alert via webhook | `python3 scripts/log_alert_aggregator.py data/sample_logs --pattern '*' --dry-run` |
 | `scripts/retry_client.py` | Reusable HTTP client: backoff + idempotency | `python3 scripts/retry_client.py --help` |
@@ -62,20 +62,26 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 Small utility to create consistent MySQL backups using `mysqldump` with `--single-transaction`.
 
-Reads all configuration from environment variables and avoids hard-coded credentials.
+Configuration comes from environment variables or matching CLI flags (`--help` lists them); flags take precedence over env vars. The password is env-only (`DB_PASSWORD`/`MYSQL_PWD`), so credentials never land on argv.
 
 #### Features
 Timestamped `.sql` files  
 Custom backup directory  
 Compatible with cron and containerized environments  
+Configurable via env vars or CLI flags (flags win)  
 
 #### Usage
 ```bash
+# Env-var form (cron/containers)
 DB_NAME=app_db \
 DB_USER=backup_user \
 MYSQL_PWD='strong_password' \
 BACKUP_DIR=/var/backups/mysql \
 python3 scripts/backup_db.py
+
+# Flag form (ad-hoc); password still via env
+MYSQL_PWD='strong_password' python3 scripts/backup_db.py \
+  --db-name app_db --db-user backup_user --backup-dir /var/backups/mysql
 ```
 
 ### MySQL Full Server Backup (All Databases)
@@ -84,6 +90,8 @@ Utility to back up all non-system MySQL databases from a server using `mysqldump
 
 Designed for production use: streaming backups, gzip compression, and structured JSON logs suitable for automation and monitoring.
 
+Configuration comes from environment variables or matching CLI flags (`--help` lists them); flags take precedence over env vars. The password is env-only (`DB_PASSWORD`/`MYSQL_PWD`).
+
 #### Features
 Backs up all user databases (excludes system schemas)  
 Consistent dumps using `--single-transaction`  
@@ -91,15 +99,21 @@ Gzipped backups with configurable compression level
 Streaming dump (low memory usage)  
 Structured JSON logs (machine-readable)  
 Cron and container friendly  
+Configurable via env vars or CLI flags (flags win)  
 
 #### Usage
 ```bash
+# Env-var form (cron/containers)
 DB_HOST=localhost \
 DB_USER=backup_user \
 DB_PASSWORD='strong_password' \
 BACKUP_DIR=/var/backups/mysql \
 GZIP_LEVEL=6 \
 python3 scripts/backup_all_dbs.py
+
+# Flag form (ad-hoc); password still via env
+DB_PASSWORD='strong_password' python3 scripts/backup_all_dbs.py \
+  --db-host localhost --db-user backup_user --backup-dir /var/backups/mysql --gzip-level 6
 ```
 
 ### API Health Check
@@ -108,6 +122,8 @@ Lightweight API health check utility designed for automation and monitoring.
 
 Performs HTTP checks against one or multiple endpoints, validates expected status codes, and optionally verifies JSON response fields. Outputs structured JSON logs and exits with non-zero status on failure, making it suitable for cron jobs, CI/CD pipelines, and container health checks.
 
+Configuration comes from environment variables or matching CLI flags (`--help` lists them); flags take precedence over env vars. The Authorization token is env-only (`HEADER_AUTH`), so it never lands on argv.
+
 #### Features
 Single or multiple endpoint checks  
 Configurable timeouts and retries  
@@ -115,26 +131,36 @@ Expected HTTP status validation
 Optional JSON field validation  
 Structured JSON logs (stdout)  
 Cron, CI/CD, and container friendly  
+Configurable via env vars or CLI flags (flags win)  
 
 #### Usage
 ```bash
+# Env-var form (cron/CI)
 URL="https://api.example.com/health" \
 EXPECT_STATUS=200 \
 python3 scripts/api_health_check.py
-```
-#### Environment Variables
 
-`URL` – single endpoint to check  
-`TARGETS` – comma-separated list of endpoints  
-`METHOD` – HTTP method (default: GET)  
-`TIMEOUT_SECONDS` – request timeout in seconds (default: 5)  
-`RETRIES` – retry attempts (default: 1)  
-`RETRY_DELAY_MS` – delay between retries in milliseconds  
-`EXPECT_STATUS` – expected HTTP status codes (comma-separated)  
-`EXPECT_JSON` – expected top-level JSON fields  
-`HEADER_AUTH` – Authorization header value  
-`INSECURE_TLS` – disable TLS verification (use with caution)  
-`FOLLOW_REDIRECTS` – follow HTTP redirects (default: 1)  
+# Flag form (ad-hoc)
+python3 scripts/api_health_check.py \
+  --url https://api.example.com/health --expect-status 200 --expect-json status=ok
+```
+#### Environment Variables / CLI Flags
+
+Each setting can be supplied as an env var or the matching flag (flag wins):
+
+`URL` / `--url` – single endpoint to check  
+`TARGETS` / `--targets` – comma-separated list of endpoints  
+`METHOD` / `--method` – HTTP method (default: GET)  
+`TIMEOUT_SECONDS` / `--timeout-seconds` – request timeout in seconds (default: 5)  
+`RETRIES` / `--retries` – retry attempts (default: 1)  
+`RETRY_DELAY_MS` / `--retry-delay-ms` – delay between retries in milliseconds  
+`EXPECT_STATUS` / `--expect-status` – expected HTTP status codes (comma-separated)  
+`EXPECT_JSON` / `--expect-json` – expected top-level JSON fields  
+`USER_AGENT` / `--user-agent` – User-Agent header  
+`INSECURE_TLS` / `--insecure-tls` – disable TLS verification (use with caution)  
+`FOLLOW_REDIRECTS` / `--follow-redirects` – follow HTTP redirects (default: on)  
+`HEADER_AUTH` – Authorization header value (env-only)  
+`LOG_JSON` – `0` for human-readable text instead of JSON logs (env-only)  
 
 ## Data Integrity
 

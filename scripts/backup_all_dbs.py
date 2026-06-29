@@ -8,16 +8,20 @@ Designed for production/automation use: each database is streamed straight into
 a gzip file (low memory), dumps are consistent (`--single-transaction`), and the
 script emits single-line JSON logs suitable for log aggregation.
 
-Configuration (environment variables):
-  DB_HOST      Server host (default: localhost)
-  DB_PORT      Server port (default: 3306)
-  DB_USER      User name (required)
-  DB_PASSWORD  Password (optional; passed to subprocesses via MYSQL_PWD)
-  MYSQL_PWD    Password fallback (standard MySQL env var) if DB_PASSWORD is unset
-  BACKUP_DIR   Output directory (default: ./backups)
-  GZIP_LEVEL   gzip compression level 1..9 (default: 6)
+Configuration comes from environment variables or matching CLI flags; flags take
+precedence over env vars, which take precedence over the defaults. The password
+is env-only (never passed via argv, to avoid leaking through the process list):
+
+  DB_HOST / --db-host        Server host (default: localhost)
+  DB_PORT / --db-port        Server port (default: 3306)
+  DB_USER / --db-user        User name (required)
+  BACKUP_DIR / --backup-dir  Output directory (default: ./backups)
+  GZIP_LEVEL / --gzip-level  gzip compression level 1..9 (default: 6)
+  DB_PASSWORD                 Password (optional; passed to subprocesses via MYSQL_PWD)
+  MYSQL_PWD                   Password fallback (standard MySQL env var) if DB_PASSWORD is unset
 """
 
+import argparse
 import gzip
 import os
 import subprocess
@@ -54,32 +58,67 @@ def log_json(level: str, event: str, **fields: Any) -> None:
     oplog.log(level, event, as_json=_JSON_MODE, **fields)
 
 
-def read_config() -> ServerConfig:
-    """
-    Read server/backup settings from the environment.
+def _resolve(flag: str | None, env: str, default: str | None = None) -> str | None:
+    """Resolve a setting with flag > env var > default precedence."""
+    if flag is not None:
+        return flag
+    value = os.getenv(env)
+    if value is not None and value != "":
+        return value
+    return default
 
-    Raises ValueError when DB_USER is missing or GZIP_LEVEL is invalid.
+
+def read_config(args: argparse.Namespace | None = None) -> ServerConfig:
     """
-    db_user = os.getenv("DB_USER")
+    Resolve server/backup settings from CLI flags (if given), then the
+    environment, then defaults.
+
+    Raises ValueError when DB_USER is missing or the gzip level is invalid.
+    """
+    db_user = _resolve(getattr(args, "db_user", None), "DB_USER")
     if not db_user:
-        raise ValueError("DB_USER environment variable is required.")
+        raise ValueError("DB_USER is required (set --db-user or the DB_USER env var).")
 
-    raw_level = os.getenv("GZIP_LEVEL", "6")
+    raw_level = _resolve(getattr(args, "gzip_level", None), "GZIP_LEVEL", "6") or "6"
     try:
         gzip_level = int(raw_level)
     except ValueError:
-        raise ValueError(f"GZIP_LEVEL must be an integer 1..9, got: {raw_level!r}") from None
+        raise ValueError(
+            f"GZIP_LEVEL/--gzip-level must be an integer 1..9, got: {raw_level!r}"
+        ) from None
     if not 1 <= gzip_level <= 9:
-        raise ValueError(f"GZIP_LEVEL must be between 1 and 9, got: {gzip_level}")
+        raise ValueError(f"GZIP_LEVEL/--gzip-level must be between 1 and 9, got: {gzip_level}")
 
     return ServerConfig(
-        db_host=os.getenv("DB_HOST", "localhost"),
-        db_port=os.getenv("DB_PORT", "3306"),
+        db_host=_resolve(getattr(args, "db_host", None), "DB_HOST", "localhost") or "localhost",
+        db_port=_resolve(getattr(args, "db_port", None), "DB_PORT", "3306") or "3306",
         db_user=db_user,
         db_password=os.getenv("DB_PASSWORD", "") or os.getenv("MYSQL_PWD", ""),
-        backup_dir=os.getenv("BACKUP_DIR", "./backups"),
+        backup_dir=_resolve(getattr(args, "backup_dir", None), "BACKUP_DIR", "./backups")
+        or "./backups",
         gzip_level=gzip_level,
     )
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Back up all non-system MySQL databases (gzip + JSON logs).",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        epilog="Flags override the matching env vars. The password is env-only "
+        "(DB_PASSWORD or MYSQL_PWD).",
+    )
+    # Defaults are None so an omitted flag falls back to the env var, then the
+    # hardcoded default in read_config (flag > env > default).
+    parser.add_argument("--db-user", help="User name (env: DB_USER).")
+    parser.add_argument("--db-host", help="Server host (env: DB_HOST, default: localhost).")
+    parser.add_argument("--db-port", help="Server port (env: DB_PORT, default: 3306).")
+    parser.add_argument(
+        "--backup-dir", help="Output directory (env: BACKUP_DIR, default: ./backups)."
+    )
+    parser.add_argument(
+        "--gzip-level", help="gzip compression level 1..9 (env: GZIP_LEVEL, default: 6)."
+    )
+    return parser.parse_args(argv)
 
 
 def build_env(config: ServerConfig) -> dict[str, str]:
@@ -185,8 +224,9 @@ def dump_database_gzip(config: ServerConfig, db_name: str, run_ts: str) -> str:
 def main(argv: list[str] | None = None) -> int:
     global _JSON_MODE
     _JSON_MODE = oplog.want_json(default=True)
+    args = parse_args(argv)
     try:
-        config = read_config()
+        config = read_config(args)
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 2

@@ -8,6 +8,7 @@ from backup_db import (
     build_command,
     build_env,
     main,
+    parse_args,
     read_config,
 )
 
@@ -73,4 +74,26 @@ def test_build_env_falls_back_to_mysql_pwd(monkeypatch):
 
 def test_main_missing_config_returns_config_error(monkeypatch):
     _clear_db_env(monkeypatch)
-    assert main() == EXIT_CONFIG
+    assert main([]) == EXIT_CONFIG
+
+
+def test_parse_args_defaults_are_none():
+    # Every flag defaults to None so an omitted flag falls back to env, then default.
+    args = parse_args([])
+    assert args.db_name is None
+    assert args.db_user is None
+    assert args.db_host is None
+    assert args.db_port is None
+    assert args.backup_dir is None
+
+
+def test_flags_take_precedence_over_env(monkeypatch):
+    _clear_db_env(monkeypatch)
+    monkeypatch.setenv("DB_NAME", "from_env")
+    monkeypatch.setenv("DB_PORT", "3306")
+    args = parse_args(["--db-name", "from_flag", "--db-user", "ops", "--db-port", "3307"])
+    config = read_config(args)
+    assert config.db_name == "from_flag"  # flag beats env
+    assert config.db_port == "3307"  # flag beats env
+    assert config.db_user == "ops"  # flag-only (no env)
+    assert config.db_host == "localhost"  # falls through to default

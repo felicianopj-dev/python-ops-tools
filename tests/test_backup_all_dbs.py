@@ -12,6 +12,7 @@ from backup_all_dbs import (
     main,
     mysql_base_cmd,
     mysqldump_base_cmd,
+    parse_args,
     read_config,
 )
 
@@ -91,4 +92,33 @@ def test_list_databases_filters_system_dbs(monkeypatch):
 
 def test_main_missing_db_user_returns_config_error(monkeypatch):
     _clear_db_env(monkeypatch)
-    assert main() == 2
+    assert main([]) == 2
+
+
+def test_parse_args_defaults_are_none():
+    args = parse_args([])
+    assert args.db_user is None
+    assert args.db_host is None
+    assert args.db_port is None
+    assert args.backup_dir is None
+    assert args.gzip_level is None
+
+
+def test_flags_take_precedence_over_env(monkeypatch):
+    _clear_db_env(monkeypatch)
+    monkeypatch.setenv("DB_USER", "from_env")
+    monkeypatch.setenv("DB_PORT", "3306")
+    monkeypatch.setenv("GZIP_LEVEL", "6")
+    args = parse_args(["--db-user", "from_flag", "--db-port", "3307", "--gzip-level", "9"])
+    config = read_config(args)
+    assert config.db_user == "from_flag"  # flag beats env
+    assert config.db_port == "3307"  # flag beats env
+    assert config.gzip_level == 9  # flag beats env
+    assert config.db_host == "localhost"  # falls through to default
+
+
+def test_invalid_gzip_level_flag_is_rejected(monkeypatch):
+    _clear_db_env(monkeypatch)
+    args = parse_args(["--db-user", "ops", "--gzip-level", "12"])
+    with pytest.raises(ValueError, match="between 1 and 9"):
+        read_config(args)

@@ -11,6 +11,7 @@ from api_health_check import (
     check_target,
     coerce_expected_value,
     main,
+    parse_args,
     parse_csv_set,
     parse_expect_json,
     read_config,
@@ -99,6 +100,47 @@ def test_read_config_builds_headers_and_targets(monkeypatch):
     assert config.headers["Authorization"] == "Bearer xyz"
 
 
+def test_parse_args_defaults_are_none():
+    # Every flag defaults to None so an omitted flag falls back to env, then default.
+    args = parse_args([])
+    for name in (
+        "url",
+        "targets",
+        "method",
+        "timeout_seconds",
+        "retries",
+        "retry_delay_ms",
+        "expect_status",
+        "expect_json",
+        "user_agent",
+        "insecure_tls",
+        "follow_redirects",
+    ):
+        assert getattr(args, name) is None, name
+
+
+def test_flags_take_precedence_over_env(monkeypatch):
+    _clear_targets(monkeypatch)
+    monkeypatch.setenv("URL", "https://from-env")
+    monkeypatch.setenv("RETRIES", "1")
+    monkeypatch.setenv("FOLLOW_REDIRECTS", "1")
+    args = parse_args(["--url", "https://from-flag", "--retries", "5", "--no-follow-redirects"])
+    config = read_config(args)
+    assert config.targets == ["https://from-flag"]  # flag beats env
+    assert config.retries == 5  # flag beats env
+    assert config.follow_redirects is False  # --no-follow-redirects beats env
+    assert config.timeout_seconds == 5  # falls through to default
+
+
+def test_header_auth_stays_env_only(monkeypatch):
+    # There is no --header-auth flag; the token only comes from the environment.
+    _clear_targets(monkeypatch)
+    assert not hasattr(parse_args(["--url", "https://x"]), "header_auth")
+    monkeypatch.setenv("HEADER_AUTH", "Bearer secret")
+    config = read_config(parse_args(["--url", "https://x"]))
+    assert config.headers["Authorization"] == "Bearer secret"
+
+
 # --------------------------------------------------------------------------- #
 # Check logic via an injected fake session (no real HTTP)
 # --------------------------------------------------------------------------- #
@@ -179,14 +221,14 @@ def test_run_checks_aggregates_failures():
 # --------------------------------------------------------------------------- #
 def test_main_missing_target_returns_config_error(monkeypatch):
     _clear_targets(monkeypatch)
-    assert main() == EXIT_CONFIG
+    assert main([]) == EXIT_CONFIG
 
 
 def test_main_invalid_expect_status_returns_config_error(monkeypatch):
     _clear_targets(monkeypatch)
     monkeypatch.setenv("URL", "https://a.com")
     monkeypatch.setenv("EXPECT_STATUS", "abc")
-    assert main() == EXIT_CONFIG
+    assert main([]) == EXIT_CONFIG
 
 
 def test_main_success_and_failure_paths(monkeypatch):
@@ -197,7 +239,7 @@ def test_main_success_and_failure_paths(monkeypatch):
     monkeypatch.setattr(
         "api_health_check.build_client", lambda cfg: _client(FakeResponse(200, "{}"))
     )
-    assert main() == EXIT_OK
+    assert main([]) == EXIT_OK
 
     monkeypatch.setattr("api_health_check.build_client", lambda cfg: _client(FakeResponse(404, "")))
-    assert main() == EXIT_FAILED
+    assert main([]) == EXIT_FAILED
