@@ -2,6 +2,7 @@
 
 import csv
 import json
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +14,8 @@ from reconciliation_checker import (
     normalize,
     write_csv_report,
 )
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 
 def test_normalize_handles_types_and_whitespace():
@@ -120,3 +123,24 @@ def test_write_csv_report_contents(tmp_path):
     assert ["missing_in_api", "c", "", "", ""] in rows
     assert ["missing_in_local", "d", "", "", ""] in rows
     assert ["field_mismatch", "b", "amount", "20", "99"] in rows
+
+
+def test_bundled_fixtures_reconcile_with_known_discrepancies():
+    # The DB-view and API-view fixtures intentionally differ; this locks in the
+    # exact discrepancies the demo relies on so the fixtures can't drift silently.
+    local = load_json_records(str(DATA_DIR / "sample_db_data.json"), "local")
+    api = load_json_records(str(DATA_DIR / "sample_api_data.json"), "api")
+    local_index = index_by_key(local, "transaction_id", "local")
+    api_index = index_by_key(api, "transaction_id", "api")
+
+    missing_in_remote, missing_in_local, mismatches = compare(
+        local_index, api_index, "transaction_id", None
+    )
+
+    assert missing_in_remote == ["TXN-2001"]  # present in DB only
+    assert missing_in_local == ["TXN-9999"]  # present in API only
+    assert mismatches == [
+        {"key": "TXN-1003", "field": "status", "local_value": "settled", "api_value": "pending"},
+        {"key": "TXN-1009", "field": "amount", "local_value": "47.50", "api_value": "47.00"},
+        {"key": "TXN-1014", "field": "status", "local_value": "refunded", "api_value": "settled"},
+    ]

@@ -14,7 +14,7 @@ Focused on reliability, explicit configuration via environment variables, and sc
 | `scripts/backup_db.py` | Consistent single-database MySQL backup | `DB_NAME=app DB_USER=u python3 scripts/backup_db.py` |
 | `scripts/backup_all_dbs.py` | Back up all non-system databases (gzip + JSON logs) | `DB_USER=u python3 scripts/backup_all_dbs.py` |
 | `scripts/api_health_check.py` | HTTP health checks with status/JSON validation | `URL=https://api/health python3 scripts/api_health_check.py` |
-| `scripts/reconciliation_checker.py` | Compare a DB table vs API records for discrepancies | `python3 scripts/reconciliation_checker.py --local-file data/sample_api_data.json --api-file data/sample_api_data.json` |
+| `scripts/reconciliation_checker.py` | Compare a DB table vs API records for discrepancies | `python3 scripts/reconciliation_checker.py --local-file data/sample_db_data.json --api-file data/sample_api_data.json` |
 | `scripts/log_alert_aggregator.py` | Aggregate ERROR/CRITICAL logs and alert via webhook | `python3 scripts/log_alert_aggregator.py data/sample_logs --pattern '*' --dry-run` |
 | `scripts/retry_client.py` | Reusable HTTP client: backoff + idempotency | `python3 scripts/retry_client.py --help` |
 | `scripts/verify_backup.py` | Prove a backup is restorable, not just present | `DB_USER=u python3 scripts/verify_backup.py dump.sql.gz` |
@@ -142,7 +142,7 @@ python3 scripts/api_health_check.py
 
 Compares records between two data sources to surface discrepancies — a common fintech ops task such as confirming that a local payments table matches an external processor's API view (status, amounts, IDs).
 
-Records are matched on a key field (default: `transaction_id`). The local source is a MySQL table (connection settings reuse the `backup_db.py` environment-variable pattern); the remote source is a JSON file of "API records". A `data/sample_api_data.json` file with ~20 fake records is bundled for demos and testing.
+Records are matched on a key field (default: `transaction_id`). The local source is a MySQL table (connection settings reuse the `backup_db.py` environment-variable pattern); the remote source is a JSON file of "API records". Two fixtures are bundled for demos and testing: `data/sample_api_data.json` (the API view) and `data/sample_db_data.json` (the local/DB view). The two differ in a handful of records — a missing transaction on each side and a few field mismatches — so the demo surfaces real discrepancies instead of a perfect match.
 
 #### Features
 Matches records by a configurable key field  
@@ -166,8 +166,9 @@ python3 scripts/reconciliation_checker.py \
   --csv /tmp/reconciliation_report.csv
 
 # Demo without a database: use JSON files for both sides
+# (the DB view vs the API view differ, so this reports discrepancies)
 python3 scripts/reconciliation_checker.py \
-  --local-file data/sample_api_data.json \
+  --local-file data/sample_db_data.json \
   --api-file data/sample_api_data.json
 ```
 
