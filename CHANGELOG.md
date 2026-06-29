@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0]
+
+### Added
+
+- CLI flags for the three previously env-only tools (`backup_db.py`,
+  `backup_all_dbs.py`, `api_health_check.py`): each now has a `parse_args()`
+  layer and `--help`, with precedence **flag > env var > default**. Existing
+  env/cron usage is unchanged. Secrets stay env-only (the DB password and
+  `api_health_check`'s `HEADER_AUTH` token are never accepted on argv).
+- `data/sample_db_data.json`, a local/DB-view fixture for the reconciliation
+  checker. The no-database demo now compares it against the API-view fixture and
+  surfaces real discrepancies instead of a perfect self-match; a regression test
+  pins the exact differences.
+- `Automation` section in the README with copy-paste scheduling examples (cron, a
+  systemd service + timer, and a scheduled GitHub Actions workflow snippet running
+  `api_health_check` against a public URL).
+
+### Changed
+
+- Sharpened the README intro toward automation and noted that each tool runs
+  directly or imports cleanly for testing.
+- Removed the only emojis in the codebase (the `log_alert_aggregator` summary
+  header) in favour of plain text.
+
 ## [0.2.0]
 
 ### Added
@@ -56,6 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `reconciliation_checker.py`, `log_alert_aggregator.py`, `retry_client.py`,
   `verify_backup.py`, with a pytest suite and a ruff + pytest CI workflow.
 
-[Unreleased]: https://github.com/felicianopj-dev/python-ops-tools/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/felicianopj-dev/python-ops-tools/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/felicianopj-dev/python-ops-tools/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/felicianopj-dev/python-ops-tools/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/felicianopj-dev/python-ops-tools/releases/tag/v0.1.0

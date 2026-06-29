@@ -1,6 +1,6 @@
 [project]
 name = "python-ops-tools"
-version = "0.2.0"
+version = "0.3.0"
 description = "Pragmatic Python utilities for DevOps and infrastructure tasks: backups, reconciliation, log alerting, a resilient HTTP client, and backup verification."
 readme = "README.md"
 requires-python = ">=3.10"
