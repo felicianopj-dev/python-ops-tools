@@ -304,9 +304,9 @@ def build_summary(
 
     lines: list[str] = []
     header = (
-        "✅ Log Alert Summary — no high-severity entries found"
+        "Log Alert Summary — no high-severity entries found"
         if total_issues == 0
-        else "🚨 Log Alert Summary"
+        else "Log Alert Summary"
     )
     lines.append(header)
     counts_str = "  ".join(f"{sev}: {totals[sev]}" for sev in severities)
